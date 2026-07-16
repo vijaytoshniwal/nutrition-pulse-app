@@ -21,10 +21,10 @@
     <section class="card"><h2>Add food</h2>
       <form id="foodForm">
         <label>Food photo <input id="photo" type="file" accept="image/*"></label><p id="photoNote" class="muted">Choose a photo from your album or take a new photo. Confirm nutrition before saving.</p>
-        <div class="grid two"><label>Food name<input id="foodName" required placeholder="e.g. Apple or packaged food name"></label><label>Quantity (g)<input id="foodQuantity" type="number" min="1" step="1" value="100" required></label></div>
-        <button id="calculateFood" class="secondary" type="button">Calculate nutrition</button><p id="lookupStatus" class="muted"></p>
+        <div class="grid two"><label>Food name<input id="foodName" required placeholder="e.g. Apple or packaged food name"></label><label>Quantity<input id="foodQuantity" type="number" min="1" step="1" value="100" required></label><label>Unit<select id="foodUnit"><option value="g">grams (g)</option><option value="ml">millilitres (ml)</option></select></label></div>
+        <button id="calculateFood" class="secondary" type="button">Calculate nutrition</button><button id="manualNutrition" class="secondary" type="button">Enter nutrition manually</button><button id="cancelEdit" class="secondary" type="button" hidden>Cancel edit</button><p id="lookupStatus" class="muted"></p>
         <div class="grid four"><label>Calories<input id="foodCalories" type="number" min="0" step="1" required readonly></label><label>Protein (g)<input id="foodProtein" type="number" min="0" step="0.1" required readonly></label><label>Carbs (g)<input id="foodCarbs" type="number" min="0" step="0.1" required readonly></label><label>Fat (g)<input id="foodFat" type="number" min="0" step="0.1" required readonly></label><label>Fibre (g)<input id="foodFibre" type="number" min="0" step="0.1" required readonly></label><label>Sugar (g)<input id="foodSugar" type="number" min="0" step="0.1" required readonly></label></div>
-        <button type="submit">Add to today</button>
+        <button id="saveFood" type="submit">Add to today</button>
       </form>
     </section>
     <section class="card"><h2>Today’s food</h2><ul id="foodList" class="list"></ul></section>
