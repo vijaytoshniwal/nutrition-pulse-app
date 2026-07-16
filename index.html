@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#17233a">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <title>Nutrition Pulse</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <header><div><h1>Nutrition Pulse</h1><p id="today"></p></div><button id="showSettings" class="secondary" type="button">Targets</button></header>
+    <section class="metrics" aria-label="Daily totals">
+      <article><span>Calories</span><strong id="calories">0</strong><small id="calorieGoal"></small></article>
+      <article><span>Protein</span><strong id="protein">0 g</strong><small id="proteinGoal"></small></article>
+      <article><span>Water</span><strong id="water">0 L</strong><small id="waterGoal"></small></article>
+    </section>
+    <section class="card"><div class="section-head"><h2>Water</h2><button id="addWater" type="button">Add 250 ml</button></div><div class="bar"><div id="waterBar"></div></div><p id="waterProgress" class="muted"></p></section>
+    <section class="card"><h2>Add food</h2>
+      <form id="foodForm">
+        <label>Food photo <input id="photo" type="file" accept="image/*" capture="environment"></label><p id="photoNote" class="muted">Optional: take a photo, then check the suggested values before saving.</p>
+        <div class="grid two"><label>Food name<input id="foodName" required placeholder="e.g. Dal soup"></label><label>Calories<input id="foodCalories" type="number" min="0" step="1" required></label></div>
+        <div class="grid four"><label>Protein (g)<input id="foodProtein" type="number" min="0" step="0.1" required></label><label>Carbs (g)<input id="foodCarbs" type="number" min="0" step="0.1" required></label><label>Fat (g)<input id="foodFat" type="number" min="0" step="0.1" required></label><label>Fibre (g)<input id="foodFibre" type="number" min="0" step="0.1" required></label><label>Sugar (g)<input id="foodSugar" type="number" min="0" step="0.1" required></label></div>
+        <button type="submit">Add to today</button>
+      </form>
+    </section>
+    <section class="card"><h2>Today’s food</h2><ul id="foodList" class="list"></ul></section>
+    <section class="card"><div class="section-head"><h2>Daily grand total</h2><button id="saveDay" type="button">Save today</button></div><div id="totals" class="totals"></div></section>
+    <section class="card"><h2>Daily history</h2><ul id="historyList" class="history"></ul></section>
+  </main>
+  <dialog id="settingsDialog"><form id="settingsForm" method="dialog"><h2>Daily targets</h2><div class="grid two"><label>Calories<input name="calories" type="number" min="1"></label><label>Protein (g)<input name="protein" type="number" min="1"></label><label>Carbs (g)<input name="carbs" type="number" min="1"></label><label>Fat (g)<input name="fat" type="number" min="1"></label><label>Fibre (g)<input name="fibre" type="number" min="1"></label><label>Sugar (g)<input name="sugar" type="number" min="1"></label><label>Sodium (mg)<input name="sodium" type="number" min="1"></label><label>Water (L)<input name="water" type="number" min="0.1" step="0.1"></label></div><div class="actions"><button value="cancel" class="secondary">Cancel</button><button id="saveTargets" value="default">Save targets</button></div></form></dialog>
+  <script src="app.js"></script>
+</body>
+</html>
