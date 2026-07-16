@@ -17,7 +17,8 @@
       <article><span>Protein</span><strong id="protein">0 g</strong><small id="proteinGoal"></small></article>
       <article><span>Water</span><strong id="water">0 L</strong><small id="waterGoal"></small></article>
     </section>
-    <section class="card"><div class="section-head"><h2>Water</h2><button id="addWater" type="button">Add 250 ml</button></div><div class="bar"><div id="waterBar"></div></div><p id="waterProgress" class="muted"></p></section>
+    <section class="card"><h2>Daily progress</h2><div class="charts"><div><div id="calorieDonut" class="donut" role="img" aria-label="Calories progress"><strong id="calorieChartValue">0%</strong></div><p class="chart-label">Calories</p></div><div><div id="proteinDonut" class="donut protein" role="img" aria-label="Protein progress"><strong id="proteinChartValue">0%</strong></div><p class="chart-label">Protein</p></div></div></section>
+    <section class="card"><div class="section-head"><h2>Water</h2><button id="addWater" type="button">Add 50 ml</button></div><div class="bar"><div id="waterBar"></div></div><p id="waterProgress" class="muted"></p></section>
     <section class="card"><h2>Add food</h2>
       <form id="foodForm">
         <label>Food photo <input id="photo" type="file" accept="image/*"></label><p id="photoNote" class="muted">Choose a photo from your album or take a new photo. Confirm nutrition before saving.</p>
@@ -27,9 +28,10 @@
         <button id="saveFood" type="submit">Add to today</button>
       </form>
     </section>
-    <section class="card"><h2>Today’s food</h2><ul id="foodList" class="list"></ul></section>
+    <section class="card"><h2>Today’s food</h2><div class="food-table-wrap"><table class="food-table"><thead><tr><th>Food</th><th>Qty</th><th>Protein</th><th>Calories</th><th></th></tr></thead><tbody id="foodList"></tbody></table></div></section>
     <section class="card"><div class="section-head"><h2>Daily grand total</h2><button id="saveDay" type="button">Save today</button></div><div id="totals" class="totals"></div></section>
     <section class="card"><h2>Daily history</h2><ul id="historyList" class="history"></ul></section>
+    <section class="card"><h2>Protect your entries</h2><p class="muted">Your entries are backed up automatically on this device. You can also keep a backup file.</p><div class="actions"><button id="downloadBackup" type="button" class="secondary">Download backup</button><button id="restoreBackup" type="button" class="secondary">Restore backup</button><input id="restoreFile" type="file" accept="application/json" hidden></div></section>
   </main>
   <dialog id="settingsDialog"><form id="settingsForm" method="dialog"><h2>Daily targets</h2><div class="grid two"><label>Calories<input name="calories" type="number" min="1"></label><label>Protein (g)<input name="protein" type="number" min="1"></label><label>Carbs (g)<input name="carbs" type="number" min="1"></label><label>Fat (g)<input name="fat" type="number" min="1"></label><label>Fibre (g)<input name="fibre" type="number" min="1"></label><label>Sugar (g)<input name="sugar" type="number" min="1"></label><label>Sodium (mg)<input name="sodium" type="number" min="1"></label><label>Water (L)<input name="water" type="number" min="0.1" step="0.1"></label></div><div class="actions"><button value="cancel" class="secondary">Cancel</button><button id="saveTargets" value="default">Save targets</button></div></form></dialog>
   <script src="app.js"></script>
