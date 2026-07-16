@@ -20,9 +20,10 @@
     <section class="card"><div class="section-head"><h2>Water</h2><button id="addWater" type="button">Add 250 ml</button></div><div class="bar"><div id="waterBar"></div></div><p id="waterProgress" class="muted"></p></section>
     <section class="card"><h2>Add food</h2>
       <form id="foodForm">
-        <label>Food photo <input id="photo" type="file" accept="image/*" capture="environment"></label><p id="photoNote" class="muted">Optional: take a photo, then check the suggested values before saving.</p>
-        <div class="grid two"><label>Food name<input id="foodName" required placeholder="e.g. Dal soup"></label><label>Calories<input id="foodCalories" type="number" min="0" step="1" required></label></div>
-        <div class="grid four"><label>Protein (g)<input id="foodProtein" type="number" min="0" step="0.1" required></label><label>Carbs (g)<input id="foodCarbs" type="number" min="0" step="0.1" required></label><label>Fat (g)<input id="foodFat" type="number" min="0" step="0.1" required></label><label>Fibre (g)<input id="foodFibre" type="number" min="0" step="0.1" required></label><label>Sugar (g)<input id="foodSugar" type="number" min="0" step="0.1" required></label></div>
+        <label>Food photo <input id="photo" type="file" accept="image/*"></label><p id="photoNote" class="muted">Choose a photo from your album or take a new photo. Confirm nutrition before saving.</p>
+        <div class="grid two"><label>Food name<input id="foodName" required placeholder="e.g. Apple or packaged food name"></label><label>Quantity (g)<input id="foodQuantity" type="number" min="1" step="1" value="100" required></label></div>
+        <button id="calculateFood" class="secondary" type="button">Calculate nutrition</button><p id="lookupStatus" class="muted"></p>
+        <div class="grid four"><label>Calories<input id="foodCalories" type="number" min="0" step="1" required readonly></label><label>Protein (g)<input id="foodProtein" type="number" min="0" step="0.1" required readonly></label><label>Carbs (g)<input id="foodCarbs" type="number" min="0" step="0.1" required readonly></label><label>Fat (g)<input id="foodFat" type="number" min="0" step="0.1" required readonly></label><label>Fibre (g)<input id="foodFibre" type="number" min="0" step="0.1" required readonly></label><label>Sugar (g)<input id="foodSugar" type="number" min="0" step="0.1" required readonly></label></div>
         <button type="submit">Add to today</button>
       </form>
     </section>
