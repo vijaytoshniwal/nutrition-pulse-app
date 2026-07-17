@@ -10,8 +10,11 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <main class="app-shell">
-    <header><div><h1>Nutrition Pulse</h1><p id="today"></p></div><button id="showSettings" class="secondary" type="button">Targets</button></header>
+  <main id="authScreen" class="app-shell">
+    <section class="card"><h1>Nutrition Pulse</h1><p class="muted">Your personal nutrition tracker</p><form id="authForm"><div class="grid"><label>Email address<input id="authEmail" type="email" autocomplete="email" required></label><label>Password<input id="authPassword" type="password" minlength="6" autocomplete="current-password" required></label></div><p id="authMessage" class="muted"></p><div class="actions"><button id="loginButton" type="submit">Sign in</button><button id="signupButton" type="button" class="secondary">Create account</button></div></form><p class="muted">Each family member should create their own account. Password must be at least 6 characters.</p></section>
+  </main>
+  <main id="mainApp" class="app-shell" hidden>
+    <header><div><h1>Nutrition Pulse</h1><p id="today"></p><p id="userEmail" class="muted"></p></div><div class="actions"><button id="showSettings" class="secondary" type="button">Targets</button><button id="signOutButton" class="secondary" type="button">Sign out</button></div></header>
     <section class="metrics" aria-label="Daily totals">
       <article><span>Calories</span><strong id="calories">0</strong><small id="calorieGoal"></small></article>
       <article><span>Protein</span><strong id="protein">0 g</strong><small id="proteinGoal"></small></article>
@@ -35,6 +38,6 @@
     <section class="card"><h2>Protect your entries</h2><p class="muted">Your entries are backed up automatically on this device. You can also keep a backup file.</p><div class="actions"><button id="downloadBackup" type="button" class="secondary">Download backup</button><button id="restoreBackup" type="button" class="secondary">Restore backup</button><input id="restoreFile" type="file" accept="application/json" hidden></div></section>
   </main>
   <dialog id="settingsDialog"><form id="settingsForm" method="dialog"><h2>Daily targets</h2><div class="grid two"><label>Calories<input name="calories" type="number" min="1"></label><label>Protein (g)<input name="protein" type="number" min="1"></label><label>Carbs (g)<input name="carbs" type="number" min="1"></label><label>Fat (g)<input name="fat" type="number" min="1"></label><label>Fibre (g)<input name="fibre" type="number" min="1"></label><label>Sugar (g)<input name="sugar" type="number" min="1"></label><label>Sodium (mg)<input name="sodium" type="number" min="1"></label><label>Water (L)<input name="water" type="number" min="0.1" step="0.1"></label></div><div class="actions"><button value="cancel" class="secondary">Cancel</button><button id="saveTargets" value="default">Save targets</button></div></form></dialog>
-  <script src="app.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>

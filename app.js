@@ -1,3 +1,13 @@
+import {initializeApp} from 'https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js';
+import {getAuth,onAuthStateChanged,createUserWithEmailAndPassword,signInWithEmailAndPassword,signOut} from 'https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js';
+import {getFirestore,doc,getDoc,setDoc,serverTimestamp} from 'https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js';
+
+const firebaseConfig={apiKey:'AIzaSyBx9hA1S2FU-oYkJDnQtivqjnTqJZyg6VA',authDomain:'nutrition-pulse.firebaseapp.com',projectId:'nutrition-pulse',storageBucket:'nutrition-pulse.firebasestorage.app',messagingSenderId:'964919125909',appId:'1:964919125909:web:224636830515588e1f789c'};
+const firebaseApp=initializeApp(firebaseConfig);
+const auth=getAuth(firebaseApp);
+const db=getFirestore(firebaseApp);
+let currentUser=null;
+let cloudReady=false;
 const defaults={calories:1500,protein:85,carbs:175,fat:50,fibre:25,sugar:35,sodium:2000,water:3};
 const dayKey=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
 const displayDate=dateKey=>new Date(`${dateKey}T00:00:00`).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'});
@@ -19,7 +29,12 @@ let manualMode=false;
 function openBackupDb(){return new Promise((resolve,reject)=>{if(!('indexedDB'in window)){reject(new Error('Unavailable'));return;}const request=indexedDB.open('nutrition-pulse-backups',1);request.onupgradeneeded=()=>request.result.createObjectStore('data');request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});}
 async function saveIndexedBackup(){try{const db=await openBackupDb();const transaction=db.transaction('data','readwrite');transaction.objectStore('data').put(JSON.parse(JSON.stringify(state)),'latest');}catch{}}
 async function recoverIndexedBackup(){if(savedText)return;try{const db=await openBackupDb();const transaction=db.transaction('data','readonly');const request=transaction.objectStore('data').get('latest');request.onsuccess=()=>{const recovered=request.result;if(recovered&&Array.isArray(recovered.foods)){Object.assign(state,recovered);save();render();}};}catch{}}
-function save(){const data=JSON.stringify(state);localStorage.setItem(key,data);localStorage.setItem(backupKey,data);saveIndexedBackup();}
+function freshState(){return{targets:{...defaults},water:0,foods:[],history:[],currentDate:dayKey(),customFoods:{}};}
+function replaceState(data){Object.keys(state).forEach(name=>delete state[name]);Object.assign(state,freshState(),data||{});state.currentDate=state.currentDate||dayKey();state.customFoods=state.customFoods||{};state.foods=state.foods||[];state.history=state.history||[];}
+const userCacheKey=uid=>`${key}-${uid}`;
+async function saveCloud(){if(!cloudReady||!currentUser)return;try{await setDoc(doc(db,'users',currentUser.uid,'private','appData'),{state:JSON.parse(JSON.stringify(state)),updatedAt:serverTimestamp()});}catch(error){console.warn('Cloud save failed',error);}}
+function save(){const data=JSON.stringify(state);localStorage.setItem(key,data);localStorage.setItem(backupKey,data);if(currentUser)localStorage.setItem(userCacheKey(currentUser.uid),data);saveIndexedBackup();saveCloud();}
+async function loadUserState(user){cloudReady=false;const userDoc=doc(db,'users',user.uid,'private','appData');try{const snapshot=await getDoc(userDoc);if(snapshot.exists()){replaceState(snapshot.data().state);}else{const cached=localStorage.getItem(userCacheKey(user.uid));if(cached)replaceState(JSON.parse(cached));else if(!localStorage.getItem('nutrition-pulse-legacy-migrated')){localStorage.setItem('nutrition-pulse-legacy-migrated','true');}else replaceState(freshState());}cloudReady=true;save();render();}catch(error){replaceState(freshState());cloudReady=false;render();$('authMessage').textContent='Could not load cloud data. Please check your internet connection.';}}
 function value(v,unit='g'){return `${Number(v.toFixed(1))}${unit?` ${unit}`:''}`;}
 function totals(){return state.foods.reduce((total,food)=>{nutrients.forEach(n=>total[n]+=number(food[n]));return total;},{calories:0,protein:0,carbs:0,fat:0,fibre:0,sugar:0});}
 function waterMl(){return Math.round(number(state.water)*1000/50)*50;}
@@ -53,6 +68,10 @@ $('restoreFile').addEventListener('change',async event=>{const file=event.target
 $('showSettings').addEventListener('click',()=>{$('settingsDialog').showModal();const form=$('settingsForm');Object.keys(defaults).forEach(k=>form.elements[k].value=state.targets[k]);});
 $('saveTargets').addEventListener('click',event=>{event.preventDefault();const form=$('settingsForm');Object.keys(defaults).forEach(k=>state.targets[k]=number(form.elements[k].value));save();$('settingsDialog').close();render();});
 $('saveDay').addEventListener('click',()=>{ensureCurrentDay();archiveCurrentDay();save();render();});
-function scheduleMidnightCheck(){const now=new Date();const midnight=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1);setTimeout(()=>{render();scheduleMidnightCheck();},midnight-now+1000);}
-document.addEventListener('visibilitychange',()=>{if(!document.hidden)render();});
-if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js');render();recoverIndexedBackup();scheduleMidnightCheck();
+function scheduleMidnightCheck(){const now=new Date();const midnight=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1);setTimeout(()=>{if(currentUser)render();scheduleMidnightCheck();},midnight-now+1000);}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&currentUser)render();});
+$('authForm').addEventListener('submit',async event=>{event.preventDefault();const email=$('authEmail').value.trim();const password=$('authPassword').value;$('authMessage').textContent='Signing in…';try{await signInWithEmailAndPassword(auth,email,password);$('authMessage').textContent='';}catch(error){$('authMessage').textContent=error.message.replace('Firebase: ','');}});
+$('signupButton').addEventListener('click',async()=>{const email=$('authEmail').value.trim();const password=$('authPassword').value;if(!email||!password){$('authMessage').textContent='Enter your email address and password first.';return;}$('authMessage').textContent='Creating account…';try{await createUserWithEmailAndPassword(auth,email,password);$('authMessage').textContent='';}catch(error){$('authMessage').textContent=error.message.replace('Firebase: ','');}});
+$('signOutButton').addEventListener('click',()=>signOut(auth));
+onAuthStateChanged(auth,async user=>{currentUser=user;if(!user){cloudReady=false;$('mainApp').hidden=true;$('authScreen').hidden=false;$('authPassword').value='';return;}$('authScreen').hidden=true;$('mainApp').hidden=false;$('userEmail').textContent=user.email||'';await loadUserState(user);});
+if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js');scheduleMidnightCheck();
