@@ -21,6 +21,9 @@ export function freshState() {
     activityTargets: { ...DEFAULT_ACTIVITY_TARGETS },
     avatar: '',
     displayName: '',
+    mealPresets: [],
+    alertsEnabled: false,
+    lastAlertDate: {},
   };
 }
 
@@ -37,6 +40,8 @@ export function normalizeState(data) {
   state.recents = Array.isArray(state.recents) ? state.recents : [];
   state.weights = Array.isArray(state.weights) ? state.weights : [];
   state.customFoods = state.customFoods || {};
+  state.mealPresets = Array.isArray(state.mealPresets) ? state.mealPresets : [];
+  state.lastAlertDate = state.lastAlertDate || {};
   state.currentDate = state.currentDate || dayKey();
   return state;
 }
