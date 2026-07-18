@@ -1,1 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180"><rect width="180" height="180" rx="38" fill="#1d2519"/><circle cx="90" cy="90" r="52" fill="none" stroke="#3f7a4f" stroke-width="12"/><path d="M90 52c-16 0-30 16-30 38 0 20 14 34 30 34s30-14 30-34c0-8-2-15-5-21" fill="none" stroke="#dbe38a" stroke-width="10" stroke-linecap="round"/><path d="M90 40v20M80 50h20" stroke="#8fd6a8" stroke-width="9" stroke-linecap="round"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180">
+  <defs>
+    <linearGradient id="bg" x1="15%" y1="0%" x2="85%" y2="100%">
+      <stop offset="0%" stop-color="#4d8a5c"/>
+      <stop offset="100%" stop-color="#2e5f3e"/>
+    </linearGradient>
+    <linearGradient id="p" x1="0%" y1="20%" x2="100%" y2="80%">
+      <stop offset="20%" stop-color="#dbe38a"/>
+      <stop offset="80%" stop-color="#8fd6a8"/>
+    </linearGradient>
+  </defs>
+  <rect width="180" height="180" rx="58" fill="url(#bg)"/>
+  <text x="38" y="120" font-family="Arial Black, Arial, sans-serif" font-weight="800" font-size="92" fill="#ffffff" letter-spacing="-4">N</text>
+  <text x="98" y="120" font-family="Arial Black, Arial, sans-serif" font-weight="800" font-size="92" fill="url(#p)" letter-spacing="-4">P</text>
+  <circle cx="150" cy="58" r="7" fill="#dbe38a"/>
+</svg>
