@@ -1,4 +1,4 @@
-const cacheName = 'nutrition-pulse-v2-5';
+const cacheName = 'nutrition-pulse-v2-10';
 const assets = [
   './',
   './index.html',
@@ -13,6 +13,8 @@ const assets = [
   './src/food-lookup.js',
   './src/firebase-sync.js',
   './src/image-hash.js',
+  './src/alerts.js',
+  './src/barcode.js',
 ];
 
 self.addEventListener('install', event => {

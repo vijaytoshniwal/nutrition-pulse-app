@@ -43,7 +43,10 @@
             </svg>
           </button>
         </div>
-        <button type="button" id="forgotPassword" class="link-button">Forgot password?</button>
+        <div class="auth-row">
+          <label class="remember-row"><input type="checkbox" id="rememberMe"> Remember me</label>
+          <button type="button" id="forgotPassword" class="link-button">Forgot password?</button>
+        </div>
         <p id="authMessage" class="form-message"></p>
         <button id="loginButton" type="submit" class="btn-primary">Sign in</button>
         <button id="signupButton" type="button" class="btn-outline">Create account</button>
@@ -122,6 +125,7 @@
         <section id="tabLog" class="tab-panel" data-tab="log" hidden>
           <form id="foodForm" class="card">
             <h2 id="formTitle">Add food</h2>
+            <select id="logPresetSelect" hidden></select>
             <div class="photo-row">
               <label class="photo-thumb" id="photoThumb">
                 <svg id="photoPlaceholder" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="2"/></svg>
@@ -145,6 +149,7 @@
             <div class="field-row">
               <button id="calculateFood" type="button" class="chip-button flex1">Calculate</button>
               <button id="manualNutrition" type="button" class="chip-button flex1">Enter manually</button>
+              <button id="scanBarcode" type="button" class="chip-button flex1" hidden>Scan barcode</button>
             </div>
             <p id="lookupStatus" class="form-message"></p>
             <div class="nutrient-grid">
@@ -242,6 +247,12 @@
             <div id="weightChart" class="sparkline"></div>
           </div>
 
+          <div id="forecastCard" class="card" hidden>
+            <h2>Forecast</h2>
+            <p id="forecastEtaLabel" class="muted small"></p>
+            <div id="forecastRow" class="forecast-row"></div>
+          </div>
+
           <div id="weightEntriesSection" hidden>
             <div class="list-head"><h2>Entries</h2></div>
             <ul id="weightList" class="entry-list"></ul>
@@ -271,6 +282,52 @@
           <div class="list-head"><h2>Activity history</h2></div>
           <p id="noActivityHistoryNote" class="muted small empty-note">Completed days will appear here with steps, burn and exercise minutes.</p>
           <div id="activityHistoryList" class="history-list"></div>
+        </section>
+
+        <section id="tabMeals" class="tab-panel" data-tab="meals" hidden>
+          <form id="presetForm" class="card">
+            <h2>Create a meal preset</h2>
+            <p class="muted small">Pick the meal, add the foods in it (e.g. Breakfast: Poha + Tea), and save the combination — its full nutrition gets logged in one tap.</p>
+            <select id="presetName">
+              <option value="Breakfast">Breakfast</option>
+              <option value="Brunch">Brunch</option>
+              <option value="Lunch">Lunch</option>
+              <option value="Snacks">Snacks</option>
+              <option value="Dinner">Dinner</option>
+            </select>
+            <div class="field-row">
+              <input id="presetItemName" type="text" placeholder="Food name" class="flex1">
+              <input id="presetItemQuantity" type="number" min="1" step="1" value="100" placeholder="Qty">
+              <select id="presetItemUnit">
+                <option value="g">grams</option>
+                <option value="ml">millilitres</option>
+                <option value="pieces">pieces</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <button id="addPresetItem" type="button" class="chip-button flex1">Add item</button>
+              <button id="presetManualToggle" type="button" class="chip-button flex1">Enter nutrition</button>
+            </div>
+            <div id="presetNutrientGrid" class="nutrient-grid" hidden>
+              <label>Calories<input id="presetCalories" type="number" min="0" step="1"></label>
+              <label>Protein (g)<input id="presetProtein" type="number" min="0" step="0.1"></label>
+              <label>Carbs (g)<input id="presetCarbs" type="number" min="0" step="0.1"></label>
+              <label>Fat (g)<input id="presetFat" type="number" min="0" step="0.1"></label>
+              <label>Fibre (g)<input id="presetFibre" type="number" min="0" step="0.1"></label>
+              <label>Sugar (g)<input id="presetSugar" type="number" min="0" step="0.1"></label>
+            </div>
+            <p id="presetItemStatus" class="form-message"></p>
+            <ul id="presetItemsList" class="entry-list"></ul>
+            <p id="presetTotalsLabel" class="muted small"></p>
+            <div class="field-row">
+              <button id="resetPreset" type="button" class="btn-outline flex1">Reset</button>
+              <button id="savePreset" type="submit" class="btn-primary flex2">Save preset</button>
+            </div>
+          </form>
+
+          <div class="list-head"><h2>Your presets</h2></div>
+          <p id="noPresetsNote" class="muted small empty-note">Presets you save will appear here for one-tap logging.</p>
+          <ul id="presetList" class="entry-list"></ul>
         </section>
 
         <section id="tabProfile" class="tab-panel" data-tab="profile" hidden>
@@ -345,12 +402,33 @@
               <button id="themeToggle" class="theme-switch" type="button"><span class="theme-knob"></span></button>
             </div>
           </div>
+
+          <div class="card">
+            <h2>Alerts</h2>
+            <p class="muted small">Get a notification if you're eating too fast, too little, or falling behind on protein or water for the time of day.</p>
+            <div class="section-head">
+              <span>Pace alerts</span>
+              <button id="alertsToggle" class="theme-switch" type="button"><span class="theme-knob"></span></button>
+            </div>
+            <p id="alertsMessage" class="form-message"></p>
+          </div>
         </section>
 
       </div>
 
       <button id="fabLog" class="fab" type="button" title="Log food">+</button>
       <nav id="bottomNav" class="bottom-nav"></nav>
+
+      <div id="alertBanner" class="alert-banner" hidden>
+        <strong id="alertBannerTitle"></strong>
+        <p id="alertBannerBody"></p>
+      </div>
+
+      <div id="scannerOverlay" class="scanner-overlay" hidden>
+        <video id="scannerVideo" playsinline muted></video>
+        <p id="scannerStatus" class="scanner-status">Point the camera at a barcode…</p>
+        <button id="scannerCancel" type="button" class="btn-outline">Cancel</button>
+      </div>
     </main>
 
   </div>

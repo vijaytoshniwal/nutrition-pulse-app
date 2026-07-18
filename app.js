@@ -6,10 +6,12 @@ import {
 } from './src/state.js';
 import {
   computeStreak, weeklyData, weeklyScoreParts, gradeForScore, sparklineData,
-  latestWeight, idealWeightRange, computeTargetsFromProfile, weightBarData, weightJourney,
+  latestWeight, idealWeightRange, computeTargetsFromProfile, weightBarData, weightJourney, computeWeightForecast,
 } from './src/calculations.js';
 import { comparableQuantity, calculateFood, findFoodByPhotoHash } from './src/food-lookup.js';
 import { computeImageHash, isSimilarPhoto } from './src/image-hash.js';
+import { checkPaceAlerts, notificationsSupported, requestNotificationPermission, fireNotification } from './src/alerts.js';
+import { isBarcodeScanSupported, scanBarcodeFromCamera, lookupBarcode } from './src/barcode.js';
 import { watchAuthState, signIn, signUp, signOutUser, resetPassword, loadCloudState, saveCloudState } from './src/firebase-sync.js';
 
 /** Mobile browsers report 100vh as if the address bar were hidden, so measure the
@@ -28,6 +30,7 @@ let currentUser = null;
 const ui = {
   tab: 'today',
   form: freshForm(),
+  presetDraft: [],
 };
 
 function freshForm() {
@@ -69,6 +72,19 @@ function renderAuthScreen() {
   }
 }
 
+const REMEMBER_EMAIL_KEY = 'nutrition-pulse-remembered-email';
+
+const rememberedEmail = localStorage.getItem(REMEMBER_EMAIL_KEY);
+if (rememberedEmail) {
+  $('authEmail').value = rememberedEmail;
+  $('rememberMe').checked = true;
+}
+
+function applyRememberMe(email) {
+  if ($('rememberMe').checked) localStorage.setItem(REMEMBER_EMAIL_KEY, email);
+  else localStorage.removeItem(REMEMBER_EMAIL_KEY);
+}
+
 $('authForm').addEventListener('submit', async event => {
   event.preventDefault();
   const email = $('authEmail').value.trim();
@@ -76,6 +92,7 @@ $('authForm').addEventListener('submit', async event => {
   $('authMessage').textContent = 'Signing in…';
   try {
     await signIn(email, password);
+    applyRememberMe(email);
     $('authMessage').textContent = '';
   } catch (error) {
     $('authMessage').textContent = error.message.replace('Firebase: ', '');
@@ -89,6 +106,7 @@ $('signupButton').addEventListener('click', async () => {
   $('authMessage').textContent = 'Creating account…';
   try {
     await signUp(email, password);
+    applyRememberMe(email);
     $('authMessage').textContent = '';
   } catch (error) {
     $('authMessage').textContent = error.message.replace('Firebase: ', '');
@@ -141,7 +159,9 @@ $('scoreButton').addEventListener('click', () => showTab('trends'));
 function showTab(tab) {
   ui.tab = tab;
   document.querySelectorAll('.tab-panel').forEach(panel => { panel.hidden = panel.dataset.tab !== tab; });
-  $('fabLog').classList.toggle('active', tab === 'log');
+  // The + button is redundant on the Log tab (it opens Log) and floats over
+  // the form buttons on the Meals tab, so it hides on both.
+  $('fabLog').hidden = tab === 'log' || tab === 'meals';
   renderNav();
   const scroller = document.querySelector('.tab-scroll');
   if (scroller) scroller.scrollTop = 0;
@@ -353,6 +373,47 @@ $('photoInput').addEventListener('change', event => {
 });
 $('photoThumb').addEventListener('click', () => $('photoInput').click());
 
+// ---------- Barcode scanning ----------
+
+let activeScanner = null;
+
+$('scanBarcode').hidden = !isBarcodeScanSupported();
+
+$('scanBarcode').addEventListener('click', async () => {
+  $('scannerOverlay').hidden = false;
+  $('scannerStatus').textContent = 'Point the camera at a barcode…';
+  activeScanner = scanBarcodeFromCamera($('scannerVideo'));
+  try {
+    const code = await activeScanner.promise;
+    $('scannerStatus').textContent = `Found ${code} — looking it up…`;
+    const product = await lookupBarcode(code);
+    activeScanner.stop();
+    activeScanner = null;
+    $('scannerOverlay').hidden = true;
+    if (!product) {
+      $('lookupStatus').textContent = 'This barcode is not in the food database yet. Enter the nutrition manually — it will be remembered.';
+      return;
+    }
+    const quantity = product.servingG || num($('foodQuantity').value) || 100;
+    $('foodName').value = product.name;
+    $('foodQuantity').value = quantity;
+    $('foodUnit').value = 'g';
+    const factor = quantity / 100;
+    setFoodValues(Object.fromEntries(NUTRIENTS.map(n => [n, num(product.per100[n]) * factor])));
+    ui.form.manualMode = false;
+    setNutrientEditing(false);
+    $('lookupStatus').textContent = `Scanned: ${product.name}. Adjust the quantity if you ate more or less — then tap Calculate to rescale, or save as is.`;
+  } catch {
+    if (activeScanner) { activeScanner.stop(); activeScanner = null; }
+    $('scannerOverlay').hidden = true;
+  }
+});
+
+$('scannerCancel').addEventListener('click', () => {
+  if (activeScanner) { activeScanner.stop(); activeScanner = null; }
+  $('scannerOverlay').hidden = true;
+});
+
 $('calculateFood').addEventListener('click', async () => {
   const name = $('foodName').value.trim();
   const quantity = num($('foodQuantity').value);
@@ -426,12 +487,14 @@ function renderTrends(derived) {
   $('weeklyGrade').textContent = derived.weeklyGrade;
   $('weeklyScoreLabel').textContent = `${derived.weeklyScore}/100`;
 
+  // Score rows all measure "how well you're doing", so they stay in the
+  // green/teal family — a red bar at 100/100 reads like a problem.
   const scoreDefs = [
     ['Calories on target', derived.weekScore.cal, 'var(--accent)'],
     ['Protein', derived.weekScore.protein, 'var(--accent2)'],
     ['Fibre', derived.weekScore.fibre, 'var(--accent2)'],
     ['Hydration', derived.weekScore.hyd, 'var(--water)'],
-    ['Sugar control', derived.weekScore.sugar, 'var(--sugar-c)'],
+    ['Sugar control', derived.weekScore.sugar, 'var(--accent2)'],
   ];
   renderScoreRows('scoreRows', scoreDefs.map(([label, value, color]) => ({ label, value: `${value}/100`, percent: value, color })));
 
@@ -573,6 +636,20 @@ function renderWeight(derived) {
   $('weightEntriesSection').hidden = !hasWeights;
   $('noWeightsNote').hidden = hasWeights;
 
+  const forecast = computeWeightForecast(state.weights, num(state.profile.goalWeight));
+  $('forecastCard').hidden = !forecast;
+  if (forecast) {
+    $('forecastEtaLabel').textContent = forecast.etaLabel || `Trend: ${forecast.weeklyRate >= 0 ? '+' : ''}${forecast.weeklyRate} kg/week based on your weigh-ins.`;
+    const row = $('forecastRow');
+    row.replaceChildren();
+    forecast.projected.forEach(point => {
+      const chip = document.createElement('div');
+      chip.className = 'forecast-chip';
+      chip.innerHTML = `<span>+${point.weeksOut}w</span><strong>${point.kg} kg</strong>`;
+      row.appendChild(chip);
+    });
+  }
+
   if (hasWeights) {
     const current = latestWeight(state);
     $('currentWeightValue').textContent = current;
@@ -683,6 +760,188 @@ function renderActivity(derived) {
   });
 }
 
+// ---------- Meals (presets) tab ----------
+
+const PRESET_NUTRIENT_IDS = { calories: 'presetCalories', protein: 'presetProtein', carbs: 'presetCarbs', fat: 'presetFat', fibre: 'presetFibre', sugar: 'presetSugar' };
+
+function readPresetManualValues() {
+  if ($('presetNutrientGrid').hidden) return null;
+  const values = Object.fromEntries(Object.entries(PRESET_NUTRIENT_IDS).map(([key, id]) => [key, $(id).value === '' ? null : num($(id).value)]));
+  return values.calories === null && values.protein === null ? null : values;
+}
+
+function clearPresetManualGrid() {
+  Object.values(PRESET_NUTRIENT_IDS).forEach(id => { $(id).value = ''; });
+  $('presetNutrientGrid').hidden = true;
+}
+
+$('presetManualToggle').addEventListener('click', () => {
+  $('presetNutrientGrid').hidden = !$('presetNutrientGrid').hidden;
+  if (!$('presetNutrientGrid').hidden) {
+    $('presetItemStatus').textContent = 'Type the nutrition for this quantity of the food, then tap Add item.';
+  } else {
+    $('presetItemStatus').textContent = '';
+  }
+});
+
+function addDraftItem(name, quantity, unit, values) {
+  const item = { name, quantity, unit, ...Object.fromEntries(NUTRIENTS.map(n => [n, num(values[n])])) };
+  ui.presetDraft.push(item);
+  $('presetItemName').value = '';
+  $('presetItemQuantity').value = 100;
+  $('presetItemUnit').value = 'g';
+  $('presetItemStatus').textContent = '';
+  clearPresetManualGrid();
+  renderMeals();
+}
+
+$('addPresetItem').addEventListener('click', async () => {
+  const name = $('presetItemName').value.trim();
+  const quantity = num($('presetItemQuantity').value);
+  const unit = $('presetItemUnit').value;
+  if (!name || quantity <= 0) {
+    $('presetItemStatus').textContent = 'Enter a food name and quantity first.';
+    return;
+  }
+  const manualValues = readPresetManualValues();
+  if (manualValues) {
+    // Remember the typed values app-wide so future lookups (here and in Add food) find this food.
+    const baseQuantity = comparableQuantity(name, quantity, unit);
+    state.customFoods[foodKey(name)] = { name, baseQuantity, ...manualValues };
+    addDraftItem(name, quantity, unit, manualValues);
+    save();
+    return;
+  }
+  $('presetItemStatus').textContent = 'Finding nutrition values…';
+  const result = await calculateFood(name, quantity, unit, state.customFoods);
+  if (!result.values) {
+    $('presetNutrientGrid').hidden = false;
+    $('presetItemStatus').textContent = `Couldn't find "${name}". Enter its nutrition below, then tap Add item — it will be remembered for next time.`;
+    return;
+  }
+  addDraftItem(name, quantity, unit, result.values);
+});
+
+$('presetForm').addEventListener('submit', event => {
+  event.preventDefault();
+  const name = $('presetName').value;
+  if (!ui.presetDraft.length) { $('presetItemStatus').textContent = 'Add at least one food item first.'; return; }
+  // Multiple combinations per meal type are allowed (Breakfast: Poha + Tea,
+  // Breakfast: Milk + Cornflakes, ...), so saving always adds a new preset.
+  state.mealPresets = [
+    { id: Date.now().toString(36), name, items: ui.presetDraft },
+    ...state.mealPresets,
+  ];
+  const label = `${name}: ${ui.presetDraft.map(i => i.name).join(' + ')}`;
+  ui.presetDraft = [];
+  $('presetItemStatus').textContent = `Saved "${label}". Log it any time from here or the Add food page.`;
+  setTimeout(() => { $('presetItemStatus').textContent = ''; }, 4000);
+  save();
+});
+
+$('resetPreset').addEventListener('click', () => {
+  ui.presetDraft = [];
+  $('presetForm').reset();
+  $('presetItemQuantity').value = 100;
+  $('presetItemUnit').value = 'g';
+  $('presetItemStatus').textContent = '';
+  clearPresetManualGrid();
+  renderMeals();
+});
+
+function logPreset(preset) {
+  preset.items.forEach(item => {
+    state.foods.push({ ...item });
+    pushRecent(item);
+  });
+  save();
+  showTab('log');
+  $('completeTodayMessage').textContent = `Logged "${preset.name}" (${preset.items.length} item${preset.items.length > 1 ? 's' : ''}).`;
+  setTimeout(() => { $('completeTodayMessage').textContent = ''; }, 3000);
+}
+
+function removePreset(id) {
+  state.mealPresets = state.mealPresets.filter(p => p.id !== id);
+  save();
+}
+
+function presetLabel(preset) {
+  return `${preset.name}: ${preset.items.map(i => i.name).join(' + ')}`;
+}
+
+function renderMeals() {
+  const draftList = $('presetItemsList');
+  draftList.replaceChildren();
+  ui.presetDraft.forEach((item, index) => {
+    const li = document.createElement('li');
+    const meta = document.createElement('div');
+    meta.className = 'entry-meta';
+    meta.innerHTML = `<strong>${item.name}</strong><p>${item.quantity}${item.unit} · ${Math.round(num(item.calories))} kcal · ${Math.round(num(item.protein) * 10) / 10}g protein</p>`;
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button'; removeBtn.className = 'round-add'; removeBtn.textContent = '×';
+    removeBtn.addEventListener('click', () => { ui.presetDraft.splice(index, 1); renderMeals(); });
+    li.append(meta, removeBtn);
+    draftList.appendChild(li);
+  });
+  if (ui.presetDraft.length) {
+    const t = totalsFor(ui.presetDraft);
+    $('presetTotalsLabel').textContent = `Total: ${Math.round(t.calories)} kcal · ${Math.round(t.protein * 10) / 10}g protein · ${Math.round(t.carbs * 10) / 10}g carbs · ${Math.round(t.fat * 10) / 10}g fat · ${Math.round(t.fibre * 10) / 10}g fibre · ${Math.round(t.sugar * 10) / 10}g sugar`;
+  } else {
+    $('presetTotalsLabel').textContent = '';
+  }
+
+  $('noPresetsNote').hidden = state.mealPresets.length > 0;
+  const list = $('presetList');
+  list.replaceChildren();
+  state.mealPresets.forEach(preset => {
+    const t = totalsFor(preset.items);
+    const li = document.createElement('li');
+    const meta = document.createElement('div');
+    meta.className = 'entry-meta';
+    meta.innerHTML = `<strong>${preset.name}</strong><p>${preset.items.map(i => i.name).join(' + ')} · ${Math.round(t.calories)} kcal · ${Math.round(t.protein * 10) / 10}g protein</p>`;
+    const actions = document.createElement('div');
+    actions.className = 'entry-actions';
+    const logBtn = document.createElement('button');
+    logBtn.type = 'button'; logBtn.className = 'edit-btn'; logBtn.textContent = 'Log now';
+    logBtn.addEventListener('click', () => logPreset(preset));
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button'; deleteBtn.className = 'delete-btn'; deleteBtn.textContent = 'Delete';
+    deleteBtn.addEventListener('click', () => removePreset(preset.id));
+    actions.append(logBtn, deleteBtn);
+    li.append(meta, actions);
+    list.appendChild(li);
+  });
+
+  renderPresetSelect();
+}
+
+/** The Add food form offers saved preset meals in a dropdown for quick logging. */
+function renderPresetSelect() {
+  const select = $('logPresetSelect');
+  select.hidden = false;
+  select.replaceChildren();
+  if (!state.mealPresets.length) {
+    select.appendChild(new Option('No preset meals yet — save one in the Meals tab', ''));
+    select.value = '';
+    return;
+  }
+  select.appendChild(new Option('Or log a preset meal…', ''));
+  state.mealPresets.forEach(preset => {
+    const t = totalsFor(preset.items);
+    select.appendChild(new Option(`${presetLabel(preset)} · ${Math.round(t.calories)} kcal`, preset.id));
+  });
+  select.value = '';
+}
+
+$('logPresetSelect').addEventListener('change', () => {
+  const preset = state.mealPresets.find(p => p.id === $('logPresetSelect').value);
+  $('logPresetSelect').value = '';
+  if (!preset) return;
+  const t = totalsFor(preset.items);
+  if (!confirm(`Add "${presetLabel(preset)}" (${Math.round(t.calories)} kcal) to today?`)) return;
+  logPreset(preset);
+});
+
 // ---------- Profile tab ----------
 
 function resizeAvatar(file) {
@@ -766,6 +1025,53 @@ $('themeToggle').addEventListener('click', () => {
   save();
 });
 
+$('alertsToggle').addEventListener('click', async () => {
+  if (!state.alertsEnabled) {
+    // Alerts always work as in-app banners; system notifications are a bonus
+    // where the browser supports and permits them (iOS Safari has no
+    // Notification API in the browser at all, for example).
+    state.alertsEnabled = true;
+    if (notificationsSupported()) {
+      const granted = await requestNotificationPermission();
+      $('alertsMessage').textContent = granted
+        ? 'Pace alerts are on — shown in the app and as notifications.'
+        : 'Pace alerts are on — shown inside the app. (System notifications are blocked; allow them in browser settings if you also want those.)';
+    } else {
+      $('alertsMessage').textContent = 'Pace alerts are on — shown inside the app while it’s open.';
+    }
+  } else {
+    state.alertsEnabled = false;
+    $('alertsMessage').textContent = '';
+  }
+  save();
+});
+
+let alertBannerTimer = null;
+function showInAppAlert(title, body) {
+  $('alertBannerTitle').textContent = title;
+  $('alertBannerBody').textContent = body;
+  $('alertBanner').hidden = false;
+  clearTimeout(alertBannerTimer);
+  alertBannerTimer = setTimeout(() => { $('alertBanner').hidden = true; }, 7000);
+}
+$('alertBanner').addEventListener('click', () => { $('alertBanner').hidden = true; });
+
+/** Fires each pace alert at most once per day, only while alerts are enabled. */
+function checkAndFireAlerts(derived) {
+  if (!state.alertsEnabled) return;
+  const today = state.currentDate;
+  const alerts = checkPaceAlerts(state, derived.todayTotals, derived.waterMl);
+  let dirty = false;
+  alerts.forEach(alert => {
+    if (state.lastAlertDate[alert.key] === today) return;
+    state.lastAlertDate[alert.key] = today;
+    dirty = true;
+    showInAppAlert(alert.title, alert.body);
+    fireNotification(alert.title, alert.body);
+  });
+  if (dirty) saveLocalState(state, currentUser && currentUser.uid);
+}
+
 function renderProfile() {
   const hasAvatar = !!state.avatar;
   $('profileAvatarImg').hidden = !hasAvatar;
@@ -788,6 +1094,8 @@ function renderProfile() {
   });
 
   document.documentElement.setAttribute('data-theme', state.theme);
+  $('themeToggle').classList.toggle('on', state.theme === 'dark');
+  $('alertsToggle').classList.toggle('on', !!state.alertsEnabled);
 }
 
 // ---------- Derived data + full render ----------
@@ -850,8 +1158,10 @@ function render() {
   renderTrends(derived);
   renderWeight(derived);
   renderActivity(derived);
+  renderMeals();
   renderProfile();
   renderNav();
+  checkAndFireAlerts(derived);
 }
 
 // ---------- Bootstrap ----------
@@ -863,6 +1173,11 @@ function scheduleMidnightCheck() {
 }
 
 document.addEventListener('visibilitychange', () => { if (!document.hidden && currentUser) render(); });
+
+// Pace alerts depend on the time of day, so re-check periodically while the app stays open.
+setInterval(() => {
+  if (currentUser && state.alertsEnabled) checkAndFireAlerts(computeDerived());
+}, 30 * 60 * 1000);
 
 watchAuthState(async user => {
   currentUser = user;
