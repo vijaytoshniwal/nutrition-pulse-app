@@ -1,9 +1,28 @@
 import { NUTRIENTS, FALLBACK_FOODS, PIECE_WEIGHTS } from './constants.js';
 import { num, foodKey } from './utils.js';
+import { hashDistance, isSimilarPhoto } from './image-hash.js';
 
 export function comparableQuantity(name, quantity, unit) {
   const key = foodKey(name);
   return unit === 'pieces' && PIECE_WEIGHTS[key] ? quantity * PIECE_WEIGHTS[key] : quantity;
+}
+
+/** Finds the saved custom food whose photo is the closest match, if any is within similarity range. */
+export function findFoodByPhotoHash(hash, customFoods) {
+  let best = null;
+  let bestScore = Infinity;
+  Object.values(customFoods).forEach(food => {
+    (food.photoHashes || []).forEach(saved => {
+      if (!isSimilarPhoto(hash, saved)) return;
+      const { structDist, colorDist } = hashDistance(hash, saved);
+      const score = structDist + colorDist / 3;
+      if (score < bestScore) {
+        bestScore = score;
+        best = food;
+      }
+    });
+  });
+  return best;
 }
 
 function scaleNutrients(source, factor, decimals = 1) {
