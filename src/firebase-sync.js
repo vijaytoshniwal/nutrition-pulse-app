@@ -5,11 +5,12 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
+  sendPasswordResetEmail,
 } from 'https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js';
 import { getFirestore, doc, getDoc, setDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js';
 
 const firebaseConfig = {
-  apiKey: 'AIzaSyBx•••••••••••••••••••••••••••••••',
+  apiKey: 'AIzaSyBx9hA1S2FU-oYkJDnQtivqjnTqJZyg6VA',
   authDomain: 'nutrition-pulse.firebaseapp.com',
   projectId: 'nutrition-pulse',
   storageBucket: 'nutrition-pulse.firebasestorage.app',
@@ -41,6 +42,10 @@ export function signUp(email, password) {
 
 export function signOutUser() {
   return signOut(auth);
+}
+
+export function resetPassword(email) {
+  return sendPasswordResetEmail(auth, email);
 }
 
 export async function loadCloudState(uid) {
