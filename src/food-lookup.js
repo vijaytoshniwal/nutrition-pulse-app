@@ -73,11 +73,27 @@ export async function calculateFood(name, quantity, unit, customFoods) {
   }
 
   try {
-    const endpoint = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(name)}&search_simple=1&action=process&json=1&page_size=5&fields=product_name,nutriments`;
+    const endpoint = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(name)}&search_simple=1&action=process&json=1&page_size=10&fields=product_name,nutriments`;
     const response = await fetch(endpoint);
     if (!response.ok) throw new Error('Lookup failed');
     const data = await response.json();
-    const product = (data.products || []).find(item => item.nutriments && Number(item.nutriments['energy-kcal_100g']) > 0);
+    // Rank candidates by how well the product name matches what was typed,
+    // rather than trusting the API's ordering — otherwise "paneer" can return
+    // some unrelated packaged item that merely mentions it.
+    const query = name.toLowerCase();
+    const queryWords = query.split(/\s+/).filter(Boolean);
+    const candidates = (data.products || [])
+      .filter(item => item.nutriments && Number(item.nutriments['energy-kcal_100g']) > 0)
+      .map(item => {
+        const productName = (item.product_name || '').toLowerCase();
+        let score = 0;
+        if (productName === query) score = 3;
+        else if (productName.includes(query)) score = 2;
+        else if (queryWords.some(word => productName.includes(word))) score = 1;
+        return { item, score };
+      })
+      .sort((a, b) => b.score - a.score);
+    const product = candidates.length ? candidates[0].item : null;
     if (!product) throw new Error('No match');
     const values = nutritionFromOpenFoodFactsProduct(product, quantityGrams);
     const note = unit === 'ml' ? ' (using 1 ml ≈ 1 g).' : '';
