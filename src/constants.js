@@ -16,6 +16,9 @@ export const FALLBACK_FOODS = {
   dal: { calories: 116, protein: 9, carbs: 20.1, fat: 0.4, fibre: 7.9, sugar: 1.8 },
   roti: { calories: 297, protein: 11.6, carbs: 55.3, fat: 2.5, fibre: 10.7, sugar: 0.4 },
   sattu: { calories: 400, protein: 22, carbs: 58, fat: 7, fibre: 12, sugar: 2 },
+  paneer: { calories: 296, protein: 19.1, carbs: 4.5, fat: 22.8, fibre: 0, sugar: 3.2 },
+  'cottage cheese': { calories: 98, protein: 11.1, carbs: 3.4, fat: 4.3, fibre: 0, sugar: 2.7 },
+  curd: { calories: 60, protein: 3.1, carbs: 4.7, fat: 3.3, fibre: 0, sugar: 4.7 },
   'green tea': { calories: 1, protein: 0, carbs: 0, fat: 0, fibre: 0, sugar: 0 },
   'lemon water': { calories: 2, protein: 0, carbs: 0.7, fat: 0, fibre: 0, sugar: 0.2 },
 };
@@ -55,5 +58,6 @@ export const NAV_ITEMS = [
   { id: 'trends', label: 'Trends' },
   { id: 'activity', label: 'Activity' },
   { id: 'weight', label: 'Weight' },
+  { id: 'meals', label: 'Meals' },
   { id: 'profile', label: 'Profile' },
 ];
