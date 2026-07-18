@@ -9,7 +9,7 @@ import {
   latestWeight, idealWeightRange, computeTargetsFromProfile, weightBarData, weightJourney,
 } from './src/calculations.js';
 import { comparableQuantity, calculateFood } from './src/food-lookup.js';
-import { watchAuthState, signIn, signUp, signOutUser, loadCloudState, saveCloudState } from './src/firebase-sync.js';
+import { watchAuthState, signIn, signUp, signOutUser, resetPassword, loadCloudState, saveCloudState } from './src/firebase-sync.js';
 
 let state = loadLocalState();
 let currentUser = null;
@@ -85,6 +85,27 @@ $('signupButton').addEventListener('click', async () => {
 });
 
 $('signOutButton').addEventListener('click', () => signOutUser());
+
+$('togglePassword').addEventListener('click', () => {
+  const field = $('authPassword');
+  const showing = field.type === 'text';
+  field.type = showing ? 'password' : 'text';
+  $('passwordEyeSlash').hidden = showing;
+  $('togglePassword').setAttribute('aria-pressed', String(!showing));
+  $('togglePassword').setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+});
+
+$('forgotPassword').addEventListener('click', async () => {
+  const email = $('authEmail').value.trim();
+  if (!email) { $('authMessage').textContent = 'Enter your email address above first, then tap "Forgot password?" again.'; return; }
+  $('authMessage').textContent = 'Sending password reset email…';
+  try {
+    await resetPassword(email);
+    $('authMessage').textContent = `Password reset email sent to ${email}. Check your inbox.`;
+  } catch (error) {
+    $('authMessage').textContent = error.message.replace('Firebase: ', '');
+  }
+});
 
 // ---------- Header ----------
 
