@@ -12,6 +12,16 @@ import { comparableQuantity, calculateFood, findFoodByPhotoHash } from './src/fo
 import { computeImageHash, isSimilarPhoto } from './src/image-hash.js';
 import { watchAuthState, signIn, signUp, signOutUser, resetPassword, loadCloudState, saveCloudState } from './src/firebase-sync.js';
 
+/** Mobile browsers report 100vh as if the address bar were hidden, so measure the
+ * real visible height in JS instead of trusting CSS vh units alone. */
+function syncViewportHeightVar() {
+  document.documentElement.style.setProperty('--vh', `${window.innerHeight * 0.01}px`);
+}
+syncViewportHeightVar();
+window.addEventListener('resize', syncViewportHeightVar);
+window.addEventListener('orientationchange', syncViewportHeightVar);
+if (window.visualViewport) window.visualViewport.addEventListener('resize', syncViewportHeightVar);
+
 let state = loadLocalState();
 let currentUser = null;
 

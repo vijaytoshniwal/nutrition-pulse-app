@@ -450,6 +450,6 @@ label { display: flex; flex-direction: column; gap: 5px; font-size: .72rem; colo
 @media (max-width: 420px) {
   .phone { padding: 0; }
   .auth-screen, .app-main { border-radius: 0; min-height: 100vh; }
-  .app-main { height: 100vh; height: 100dvh; }
+  .app-main { height: calc(var(--vh, 1vh) * 100); }
   .food-pick-grid, .nutrient-grid.three { grid-template-columns: repeat(3, 1fr); }
 }
