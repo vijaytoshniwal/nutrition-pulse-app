@@ -1,77 +1,838 @@
-import {initializeApp} from 'https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js';
-import {getAuth,onAuthStateChanged,createUserWithEmailAndPassword,signInWithEmailAndPassword,signOut} from 'https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js';
-import {getFirestore,doc,getDoc,setDoc,serverTimestamp} from 'https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js';
+import { NUTRIENTS, QUOTES, FOOD_PICKS, NAV_ITEMS } from './src/constants.js';
+import { $, num, dayKey, displayDate, dayOfYear, foodKey } from './src/utils.js';
+import {
+  loadLocalState, saveLocalState, normalizeState, totalsFor, rolloverIfNewDay,
+  archiveCurrentDay, exportBackupFile, readBackupFile, saveIndexedBackup, recoverIndexedBackup, userCacheKey,
+} from './src/state.js';
+import {
+  computeStreak, weeklyData, weeklyScoreParts, gradeForScore, sparklineData,
+  latestWeight, idealWeightRange, computeTargetsFromProfile, weightBarData, weightJourney,
+} from './src/calculations.js';
+import { comparableQuantity, calculateFood } from './src/food-lookup.js';
+import { watchAuthState, signIn, signUp, signOutUser, loadCloudState, saveCloudState } from './src/firebase-sync.js';
 
-const firebaseConfig={apiKey:'AIzaSyBx9hA1S2FU-oYkJDnQtivqjnTqJZyg6VA',authDomain:'nutrition-pulse.firebaseapp.com',projectId:'nutrition-pulse',storageBucket:'nutrition-pulse.firebasestorage.app',messagingSenderId:'964919125909',appId:'1:964919125909:web:224636830515588e1f789c'};
-const firebaseApp=initializeApp(firebaseConfig);
-const auth=getAuth(firebaseApp);
-const db=getFirestore(firebaseApp);
-let currentUser=null;
-let cloudReady=false;
-const defaults={calories:1500,protein:85,carbs:175,fat:50,fibre:25,sugar:35,sodium:2000,water:3};
-const dayKey=()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;};
-const displayDate=dateKey=>new Date(`${dateKey}T00:00:00`).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'});
-const key='nutrition-pulse-data-v1';
-const backupKey='nutrition-pulse-backup-v1';
-const savedText=localStorage.getItem(key)||localStorage.getItem(backupKey);
-const state=JSON.parse(savedText||'null')||{targets:defaults,water:0,foods:[],history:[]};
-state.currentDate=state.currentDate||dayKey();
-state.customFoods=state.customFoods||{};
-const fallbackFoods={apple:{calories:52,protein:.3,carbs:13.8,fat:.2,fibre:2.4,sugar:10.4},banana:{calories:89,protein:1.1,carbs:22.8,fat:.3,fibre:2.6,sugar:12.2},almonds:{calories:579,protein:21.2,carbs:21.6,fat:49.9,fibre:12.5,sugar:4.4},mango:{calories:60,protein:.8,carbs:15,fat:.4,fibre:1.6,sugar:13.7},papaya:{calories:43,protein:.5,carbs:10.8,fat:.3,fibre:1.7,sugar:7.8},rice:{calories:130,protein:2.4,carbs:28.2,fat:.3,fibre:.4,sugar:.1},dal:{calories:116,protein:9,carbs:20.1,fat:.4,fibre:7.9,sugar:1.8},roti:{calories:297,protein:11.6,carbs:55.3,fat:2.5,fibre:10.7,sugar:.4},sattu:{calories:400,protein:22,carbs:58,fat:7,fibre:12,sugar:2},'green tea':{calories:1,protein:0,carbs:0,fat:0,fibre:0,sugar:0},'lemon water':{calories:2,protein:0,carbs:.7,fat:0,fibre:0,sugar:.2}};
-const pieceWeights={apple:182,banana:118,almonds:1.2,mango:200,papaya:140,roti:40};
-const foodKey=name=>name.trim().toLowerCase().replace(/\s+/g,' ');
-function comparableQuantity(name,quantity,unit){return unit==='pieces'&&pieceWeights[foodKey(name)]?quantity*pieceWeights[foodKey(name)]:quantity;}
-const $=id=>document.getElementById(id);
-const nutrients=['calories','protein','carbs','fat','fibre','sugar'];
-const number=value=>Number(value)||0;
-let editingIndex=null;
-let manualMode=false;
-function openBackupDb(){return new Promise((resolve,reject)=>{if(!('indexedDB'in window)){reject(new Error('Unavailable'));return;}const request=indexedDB.open('nutrition-pulse-backups',1);request.onupgradeneeded=()=>request.result.createObjectStore('data');request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});}
-async function saveIndexedBackup(){try{const db=await openBackupDb();const transaction=db.transaction('data','readwrite');transaction.objectStore('data').put(JSON.parse(JSON.stringify(state)),'latest');}catch{}}
-async function recoverIndexedBackup(){if(savedText)return;try{const db=await openBackupDb();const transaction=db.transaction('data','readonly');const request=transaction.objectStore('data').get('latest');request.onsuccess=()=>{const recovered=request.result;if(recovered&&Array.isArray(recovered.foods)){Object.assign(state,recovered);save();render();}};}catch{}}
-function freshState(){return{targets:{...defaults},water:0,foods:[],history:[],currentDate:dayKey(),customFoods:{}};}
-function replaceState(data){Object.keys(state).forEach(name=>delete state[name]);Object.assign(state,freshState(),data||{});state.currentDate=state.currentDate||dayKey();state.customFoods=state.customFoods||{};state.foods=state.foods||[];state.history=state.history||[];}
-const userCacheKey=uid=>`${key}-${uid}`;
-async function saveCloud(){if(!cloudReady||!currentUser)return;try{await setDoc(doc(db,'users',currentUser.uid,'private','appData'),{state:JSON.parse(JSON.stringify(state)),updatedAt:serverTimestamp()});}catch(error){console.warn('Cloud save failed',error);}}
-function save(){const data=JSON.stringify(state);localStorage.setItem(key,data);localStorage.setItem(backupKey,data);if(currentUser)localStorage.setItem(userCacheKey(currentUser.uid),data);saveIndexedBackup();saveCloud();}
-async function loadUserState(user){cloudReady=false;const userDoc=doc(db,'users',user.uid,'private','appData');try{const snapshot=await getDoc(userDoc);if(snapshot.exists()){replaceState(snapshot.data().state);}else{const cached=localStorage.getItem(userCacheKey(user.uid));if(cached)replaceState(JSON.parse(cached));else if(!localStorage.getItem('nutrition-pulse-legacy-migrated')){localStorage.setItem('nutrition-pulse-legacy-migrated','true');}else replaceState(freshState());}cloudReady=true;save();render();}catch(error){replaceState(freshState());cloudReady=false;render();$('authMessage').textContent='Could not load cloud data. Please check your internet connection.';}}
-function value(v,unit='g'){return `${Number(v.toFixed(1))}${unit?` ${unit}`:''}`;}
-function totals(){return state.foods.reduce((total,food)=>{nutrients.forEach(n=>total[n]+=number(food[n]));return total;},{calories:0,protein:0,carbs:0,fat:0,fibre:0,sugar:0});}
-function waterMl(){return Math.round(number(state.water)*1000/50)*50;}
-function archiveCurrentDay(){const t=totals();if(!state.foods.length&&waterMl()===0)return;const id=state.currentDate;state.history=state.history.filter(h=>(h.id||h.date)!==id);state.history.unshift({id,date:displayDate(id),...t,water:waterMl()/1000});}
-function ensureCurrentDay(){const today=dayKey();if(state.currentDate===today)return false;archiveCurrentDay();state.currentDate=today;state.foods=[];state.water=0;editingIndex=null;save();return true;}
-const keyFromDate=date=>`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
-function historyKey(record){if(record.id)return record.id;const parsed=new Date(record.date);return Number.isNaN(parsed.getTime())?'':keyFromDate(parsed);}
-function weeklyData(todayTotals){const current=new Date(`${state.currentDate}T00:00:00`);const weekday=(current.getDay()+6)%7;const start=new Date(current);start.setDate(current.getDate()-weekday);const end=new Date(start);end.setDate(start.getDate()+6);const startKey=keyFromDate(start);const endKey=keyFromDate(end);const weekly={calories:0,protein:0,carbs:0,fat:0,fibre:0,sugar:0,water:0};state.history.filter(h=>{const id=historyKey(h);return id&&id>=startKey&&id<=endKey&&id!==state.currentDate;}).forEach(h=>{nutrients.forEach(n=>weekly[n]+=number(h[n]));weekly.water+=number(h.water);});nutrients.forEach(n=>weekly[n]+=number(todayTotals[n]));weekly.water+=waterMl()/1000;return{weekly,start,end};}
-function renderWeekly(todayTotals){const data=weeklyData(todayTotals);const weekStart=displayDate(keyFromDate(data.start));const weekEnd=displayDate(keyFromDate(data.end));$('weekRange').textContent=`${weekStart} – ${weekEnd}`;const rows=[['Calories','calories','kcal'],['Protein','protein','g'],['Carbs','carbs','g'],['Fat','fat','g'],['Fibre','fibre','g'],['Sugar','sugar','g'],['Water','water','ml']];const body=$('weeklySummary');body.replaceChildren();rows.forEach(([label,keyName,unit])=>{const target=number(state.targets[keyName])*7*(unit==='ml'?1000:1);const achieved=data.weekly[keyName]*(unit==='ml'?1000:1);const remaining=Math.max(0,target-achieved);const over=achieved>target;const row=document.createElement('tr');[label,`${Math.round(target).toLocaleString()} ${unit}`,`${Math.round(achieved).toLocaleString()} ${unit}`,`${Math.round(remaining).toLocaleString()} ${unit}`].forEach(text=>{const cell=document.createElement('td');cell.textContent=text;row.appendChild(cell);});const status=document.createElement('td');status.textContent=over?`Over by ${Math.round(achieved-target).toLocaleString()} ${unit}`:'Within limit';status.style.color=over?'#dc2626':'#15803d';status.style.fontWeight='700';row.appendChild(status);body.appendChild(row);});const calorieTarget=Math.max(1,number(state.targets.calories)*7);const proteinTarget=Math.max(1,number(state.targets.protein)*7);const caloriePercent=Math.min(100,Math.round(data.weekly.calories/calorieTarget*100));const proteinPercent=Math.min(100,Math.round(data.weekly.protein/proteinTarget*100));$('weeklyCalorieDonut').style.setProperty('--progress',`${caloriePercent}%`);$('weeklyProteinDonut').style.setProperty('--progress',`${proteinPercent}%`);$('weeklyCalorieValue').textContent=`${caloriePercent}%`;$('weeklyProteinValue').textContent=`${proteinPercent}%`;$('weeklyCalorieDonut').setAttribute('aria-label',`Weekly calories: ${Math.round(data.weekly.calories)} of ${calorieTarget} kcal`);$('weeklyProteinDonut').setAttribute('aria-label',`Weekly protein: ${data.weekly.protein.toFixed(1)} of ${proteinTarget} g`);}
-function nutrientField(name){return $(`food${name[0].toUpperCase()}${name.slice(1)}`);}
-function setNutrientEditing(enabled){nutrients.forEach(n=>nutrientField(n).readOnly=!enabled);}
-function addListItem(list,left,right){const item=document.createElement('li');const a=document.createElement('span');a.textContent=left;const b=document.createElement('strong');b.textContent=right;item.append(a,b);list.appendChild(item);}
-function render(){ensureCurrentDay();const t=totals();const currentWaterMl=waterMl();const waterTargetMl=Math.max(50,number(state.targets.water)*1000);$('today').textContent=displayDate(state.currentDate);$('calories').textContent=Math.round(t.calories);$('protein').textContent=value(t.protein);$('water').textContent=`${currentWaterMl} ml`;$('calorieGoal').textContent=`of ${state.targets.calories.toLocaleString()} kcal`;$('proteinGoal').textContent=`of ${state.targets.protein} g`;$('waterGoal').textContent=`of ${waterTargetMl.toLocaleString()} ml`;$('waterBar').style.width=`${Math.min(100,currentWaterMl/waterTargetMl*100)}%`;$('waterProgress').textContent=`${currentWaterMl.toLocaleString()} of ${waterTargetMl.toLocaleString()} ml`;const calorieTarget=Math.max(1,number(state.targets.calories));const proteinTarget=Math.max(1,number(state.targets.protein));const caloriePercent=Math.min(100,Math.round(t.calories/calorieTarget*100));const proteinPercent=Math.min(100,Math.round(t.protein/proteinTarget*100));$('calorieDonut').style.setProperty('--progress',`${caloriePercent}%`);$('proteinDonut').style.setProperty('--progress',`${proteinPercent}%`);$('calorieChartValue').textContent=`${caloriePercent}%`;$('proteinChartValue').textContent=`${proteinPercent}%`;$('calorieDonut').setAttribute('aria-label',`Calories: ${Math.round(t.calories)} of ${calorieTarget} kcal, ${caloriePercent}%`);$('proteinDonut').setAttribute('aria-label',`Protein: ${t.protein.toFixed(1)} of ${proteinTarget} g, ${proteinPercent}%`);
-const list=$('foodList');list.replaceChildren();if(!state.foods.length){const row=document.createElement('tr');const cell=document.createElement('td');cell.colSpan=5;cell.className='empty';cell.textContent='No food logged yet.';row.appendChild(cell);list.appendChild(row);}else state.foods.forEach((food,index)=>{const row=document.createElement('tr');const cells=[food.name,`${food.quantity||''} ${food.unit||''}`.trim(),value(number(food.protein)),`${Math.round(number(food.calories))} kcal`];cells.forEach(text=>{const cell=document.createElement('td');cell.textContent=text;row.appendChild(cell);});const action=document.createElement('td');const edit=document.createElement('button');edit.type='button';edit.className='secondary';edit.textContent='Edit';edit.addEventListener('click',()=>startEdit(index));action.appendChild(edit);row.appendChild(action);list.appendChild(row);});
-const totalBox=$('totals');totalBox.replaceChildren();[['Calories',`${Math.round(t.calories)} kcal`],['Protein',value(t.protein)],['Carbs',value(t.carbs)],['Fat',value(t.fat)],['Fibre',value(t.fibre)],['Sugar',value(t.sugar)],['Water',`${currentWaterMl} ml`]].forEach(([label,amount])=>{const box=document.createElement('div');const caption=document.createElement('span');caption.textContent=label;const amountNode=document.createElement('strong');amountNode.textContent=amount;box.append(caption,amountNode);totalBox.appendChild(box);});
-const history=$('historyList');history.replaceChildren();if(!state.history.length){const row=document.createElement('tr');const cell=document.createElement('td');cell.colSpan=8;cell.className='empty';cell.textContent='Completed days will appear here automatically.';row.appendChild(cell);history.appendChild(row);}else state.history.forEach(h=>{const row=document.createElement('tr');[h.date,`${Math.round(number(h.calories))} kcal`,value(number(h.protein)),value(number(h.carbs)),value(number(h.fat)),value(number(h.fibre)),value(number(h.sugar)),`${Math.round(number(h.water)*1000/50)*50} ml`].forEach(text=>{const cell=document.createElement('td');cell.textContent=text;row.appendChild(cell);});history.appendChild(row);});renderWeekly(t);}
-function setFoodValues(data){nutrients.forEach(name=>{const amount=data[name];nutrientField(name).value=amount===null||amount===undefined?'':Number(number(amount).toFixed(1));});}
-function nutritionFromProduct(product,quantity){const n=product.nutriments||{};const per100=(...keys)=>keys.map(k=>Number(n[k])).find(Number.isFinite)||0;const factor=quantity/100;return{calories:per100('energy-kcal_100g','energy-kcal')*factor,protein:per100('proteins_100g','proteins')*factor,carbs:per100('carbohydrates_100g','carbohydrates')*factor,fat:per100('fat_100g','fat')*factor,fibre:per100('fiber_100g','fiber')*factor,sugar:per100('sugars_100g','sugars')*factor};}
-async function calculateFood(){const name=$('foodName').value.trim();const quantity=number($('foodQuantity').value);const unit=$('foodUnit').value;const status=$('lookupStatus');if(!name||quantity<=0){status.textContent='Enter a food name and quantity first.';return;}manualMode=false;setNutrientEditing(false);const keyName=foodKey(name);const fallback=fallbackFoods[keyName];const quantityInGrams=comparableQuantity(name,quantity,unit);const savedFood=state.customFoods[keyName];const compatibleSavedFood=savedFood&&(savedFood.baseUnit===unit||(savedFood.baseUnit!=='pieces'&&unit!=='pieces')||Boolean(pieceWeights[keyName]));if(compatibleSavedFood&&savedFood.baseQuantity>0){const factor=quantityInGrams/savedFood.baseQuantity;setFoodValues(Object.fromEntries(nutrients.map(n=>[n,savedFood[n]===null?null:number(savedFood[n])*factor])));manualMode=true;setNutrientEditing(true);status.textContent=`Calculated from your saved manual values for ${savedFood.name}. Please review and save.`;return;}if(unit==='pieces'&&!pieceWeights[keyName]){status.textContent='No saved manual values were found for this food. For new foods in pieces, use grams or enter nutrition manually.';return;}status.textContent='Finding nutrition values…';if(fallback){setFoodValues(Object.fromEntries(nutrients.map(n=>[n,fallback[n]*quantityInGrams/100])));status.textContent=`Calculated from the basic food list${unit==='ml'?' (using 1 ml ≈ 1 g).':unit==='pieces'?` (using ~${pieceWeights[keyName]} g per piece).`:''}`;return;}try{const endpoint=`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(name)}&search_simple=1&action=process&json=1&page_size=5&fields=product_name,nutriments`;const response=await fetch(endpoint);if(!response.ok)throw new Error();const data=await response.json();const product=(data.products||[]).find(item=>item.nutriments&&Number(item.nutriments['energy-kcal_100g'])>0);if(!product)throw new Error();setFoodValues(nutritionFromProduct(product,quantityInGrams));status.textContent=`Calculated from ${product.product_name||'a matching product'}${unit==='ml'?' (using 1 ml ≈ 1 g).':''}. Review values before saving.`;}catch{status.textContent='No match found. Select Enter nutrition manually to type the values.';}}
-function resetFoodForm(){const form=$('foodForm');form.reset();$('foodQuantity').value=100;$('foodUnit').value='g';manualMode=false;setNutrientEditing(false);editingIndex=null;$('saveFood').textContent='Add to today';$('cancelEdit').hidden=true;$('lookupStatus').textContent='';$('photoNote').textContent='Choose a photo from your album or take a new photo. Confirm nutrition before saving.';}
-function startEdit(index){const food=state.foods[index];editingIndex=index;manualMode=true;$('foodName').value=food.name;$('foodQuantity').value=food.quantity||100;$('foodUnit').value=food.unit||'g';nutrients.forEach(n=>nutrientField(n).value=food[n]??'');setNutrientEditing(true);$('lookupStatus').textContent='Editing saved entry. Unknown nutrient values may stay blank; blanks are not included in totals.';$('saveFood').textContent='Update food';$('cancelEdit').hidden=false;window.scrollTo({top:0,behavior:'smooth'});}
-$('addWater').addEventListener('click',()=>{state.water=(waterMl()+50)/1000;save();render();});
-$('calculateFood').addEventListener('click',calculateFood);
-$('manualNutrition').addEventListener('click',()=>{manualMode=true;setNutrientEditing(true);$('lookupStatus').textContent='Enter known nutrition values manually. Leave unknown values blank; blanks are not included in totals.';});
-$('cancelEdit').addEventListener('click',resetFoodForm);
-$('foodForm').addEventListener('submit',event=>{event.preventDefault();const form=event.currentTarget;const food={name:form.foodName.value.trim(),quantity:number($('foodQuantity').value),unit:$('foodUnit').value};const hasValues=nutrients.every(n=>{const field=nutrientField(n);food[n]=field.value===''?null:number(field.value);return field.value!=='';});if(!food.name||food.quantity<=0||(!manualMode&&!hasValues)){$('lookupStatus').textContent='Calculate nutrition or use Enter nutrition manually before saving.';return;}if(manualMode){const baseQuantity=comparableQuantity(food.name,food.quantity,food.unit);state.customFoods[foodKey(food.name)]={name:food.name,baseQuantity,baseUnit:food.unit,...Object.fromEntries(nutrients.map(n=>[n,food[n]]))};}if(editingIndex===null)state.foods.push(food);else state.foods[editingIndex]=food;save();resetFoodForm();render();});
-$('photo').addEventListener('change',event=>{$('photoNote').textContent=event.target.files.length?'Photo selected from your device. Nutrition suggestions from the photo require a separate AI photo-analysis service.':'Choose a photo from your album or take a new photo. Confirm nutrition before saving.';});
-$('downloadBackup').addEventListener('click',()=>{const file=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});const link=document.createElement('a');link.href=URL.createObjectURL(file);link.download=`nutrition-pulse-backup-${new Date().toISOString().slice(0,10)}.json`;link.click();URL.revokeObjectURL(link.href);});
-$('restoreBackup').addEventListener('click',()=>$('restoreFile').click());
-$('restoreFile').addEventListener('change',async event=>{const file=event.target.files[0];if(!file)return;try{const recovered=JSON.parse(await file.text());if(!Array.isArray(recovered.foods)||!recovered.targets)throw new Error();if(!confirm('Replace the current entries with this backup?'))return;Object.assign(state,recovered);save();render();alert('Your backup has been restored.');}catch{alert('This backup file could not be read. Please choose a Nutrition Pulse backup file.');}finally{event.target.value='';}});
-$('showSettings').addEventListener('click',()=>{$('settingsDialog').showModal();const form=$('settingsForm');Object.keys(defaults).forEach(k=>form.elements[k].value=state.targets[k]);});
-$('saveTargets').addEventListener('click',event=>{event.preventDefault();const form=$('settingsForm');Object.keys(defaults).forEach(k=>state.targets[k]=number(form.elements[k].value));save();$('settingsDialog').close();render();});
-$('saveDay').addEventListener('click',()=>{ensureCurrentDay();archiveCurrentDay();save();render();});
-function scheduleMidnightCheck(){const now=new Date();const midnight=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1);setTimeout(()=>{if(currentUser)render();scheduleMidnightCheck();},midnight-now+1000);}
-document.addEventListener('visibilitychange',()=>{if(!document.hidden&&currentUser)render();});
-$('authForm').addEventListener('submit',async event=>{event.preventDefault();const email=$('authEmail').value.trim();const password=$('authPassword').value;$('authMessage').textContent='Signing in…';try{await signInWithEmailAndPassword(auth,email,password);$('authMessage').textContent='';}catch(error){$('authMessage').textContent=error.message.replace('Firebase: ','');}});
-$('signupButton').addEventListener('click',async()=>{const email=$('authEmail').value.trim();const password=$('authPassword').value;if(!email||!password){$('authMessage').textContent='Enter your email address and password first.';return;}$('authMessage').textContent='Creating account…';try{await createUserWithEmailAndPassword(auth,email,password);$('authMessage').textContent='';}catch(error){$('authMessage').textContent=error.message.replace('Firebase: ','');}});
-$('signOutButton').addEventListener('click',()=>signOut(auth));
-onAuthStateChanged(auth,async user=>{currentUser=user;if(!user){cloudReady=false;$('mainApp').hidden=true;$('authScreen').hidden=false;$('authPassword').value='';return;}$('authScreen').hidden=true;$('mainApp').hidden=false;$('userEmail').textContent=user.email||'';await loadUserState(user);});
-if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js');scheduleMidnightCheck();
+let state = loadLocalState();
+let currentUser = null;
+
+const ui = {
+  tab: 'today',
+  form: freshForm(),
+};
+
+function freshForm() {
+  return {
+    name: '', quantity: 100, unit: 'g',
+    calories: '', protein: '', carbs: '', fat: '', fibre: '', sugar: '',
+    manualMode: false, editingIndex: null, lookupStatus: '',
+    photoDataUrl: '', photoStatus: '',
+  };
+}
+
+function greetingName() {
+  if (state.displayName) return state.displayName;
+  return currentUser && currentUser.email ? currentUser.email.split('@')[0] : 'there';
+}
+
+async function save() {
+  saveLocalState(state, currentUser && currentUser.uid);
+  saveIndexedBackup(state);
+  if (currentUser) await saveCloudState(currentUser.uid, state);
+  render();
+}
+
+// ---------- Auth screen ----------
+
+function renderAuthScreen() {
+  const grid = $('foodPickGrid');
+  grid.replaceChildren();
+  const dayIndex = dayOfYear(new Date());
+  for (let i = 0; i < 4; i++) {
+    const pick = FOOD_PICKS[(dayIndex * 4 + i) % FOOD_PICKS.length];
+    const el = document.createElement('div');
+    el.className = 'food-pick';
+    el.innerHTML = `
+      <div class="food-pick-icon" style="animation-delay:${i * 0.4}s">${pick.icon}</div>
+      <span class="food-pick-name">${pick.name}</span>
+      <span class="food-pick-stat">${pick.stat}</span>`;
+    grid.appendChild(el);
+  }
+}
+
+$('authForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  const email = $('authEmail').value.trim();
+  const password = $('authPassword').value;
+  $('authMessage').textContent = 'Signing in…';
+  try {
+    await signIn(email, password);
+    $('authMessage').textContent = '';
+  } catch (error) {
+    $('authMessage').textContent = error.message.replace('Firebase: ', '');
+  }
+});
+
+$('signupButton').addEventListener('click', async () => {
+  const email = $('authEmail').value.trim();
+  const password = $('authPassword').value;
+  if (!email || !password) { $('authMessage').textContent = 'Enter your email address and password first.'; return; }
+  $('authMessage').textContent = 'Creating account…';
+  try {
+    await signUp(email, password);
+    $('authMessage').textContent = '';
+  } catch (error) {
+    $('authMessage').textContent = error.message.replace('Firebase: ', '');
+  }
+});
+
+$('signOutButton').addEventListener('click', () => signOutUser());
+
+// ---------- Header ----------
+
+function renderHeader(derived) {
+  $('todayLabel').textContent = `${derived.todayLabel} · ${derived.streak}d streak`;
+  $('greeting').textContent = `Hi, ${derived.firstName}`;
+
+  const hasAvatar = !!state.avatar;
+  $('avatarImg').hidden = !hasAvatar;
+  $('avatarPlaceholder').hidden = hasAvatar;
+  if (hasAvatar) $('avatarImg').src = state.avatar;
+
+  $('scoreButton').style.setProperty('--score', `${derived.weeklyScore}%`);
+  $('scoreValue').textContent = derived.weeklyScore;
+}
+
+$('avatarButton').addEventListener('click', () => showTab('profile'));
+$('scoreButton').addEventListener('click', () => showTab('trends'));
+
+// ---------- Tabs & nav ----------
+
+function showTab(tab) {
+  ui.tab = tab;
+  document.querySelectorAll('.tab-panel').forEach(panel => { panel.hidden = panel.dataset.tab !== tab; });
+  $('fabLog').classList.toggle('active', tab === 'log');
+  renderNav();
+  const scroller = document.querySelector('.tab-scroll');
+  if (scroller) scroller.scrollTop = 0;
+}
+
+function renderNav() {
+  const nav = $('bottomNav');
+  nav.replaceChildren();
+  NAV_ITEMS.forEach(item => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `nav-item${ui.tab === item.id ? ' active' : ''}`;
+    btn.innerHTML = `<span class="nav-icon"></span><span class="nav-label">${item.label}</span>`;
+    btn.addEventListener('click', () => showTab(item.id));
+    nav.appendChild(btn);
+  });
+}
+
+$('fabLog').addEventListener('click', () => showTab('log'));
+
+// ---------- Today tab ----------
+
+function renderToday(derived) {
+  $('dailyQuote').textContent = QUOTES[dayOfYear(new Date()) % QUOTES.length];
+
+  $('calorieRing').style.setProperty('--progress', `${derived.caloriePercent}%`);
+  $('calorieValue').textContent = derived.calories;
+  $('calorieGoalLabel').textContent = `of ${derived.calorieGoal.toLocaleString()} kcal`;
+
+  $('proteinRing').style.setProperty('--progress', `${derived.proteinPercent}%`);
+  $('proteinRing').style.setProperty('--ring-color', 'var(--accent2)');
+  $('proteinValue').textContent = derived.proteinValue;
+  $('proteinGoalLabel').textContent = `of ${derived.proteinGoal}g`;
+
+  $('caloriesRemainingLabel').textContent = derived.caloriesRemainingLabel;
+  $('proteinRemainingLabel').textContent = derived.proteinRemainingLabel;
+
+  const quickAdds = state.recents.slice(0, 4);
+  $('noRecentsNote').hidden = quickAdds.length > 0;
+  const list = $('quickAddList');
+  list.replaceChildren();
+  quickAdds.forEach(recent => {
+    const li = document.createElement('li');
+    const label = document.createElement('span');
+    label.textContent = `${recent.name} · ${recent.quantity}${recent.unit}`;
+    const right = document.createElement('div');
+    right.className = 'qty';
+    const kcal = document.createElement('span');
+    kcal.textContent = `${Math.round(num(recent.calories))} kcal`;
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'round-add';
+    addBtn.textContent = '+';
+    addBtn.addEventListener('click', () => quickAddFood(recent));
+    right.append(kcal, addBtn);
+    li.append(label, right);
+    list.appendChild(li);
+  });
+
+  const macroDefs = [
+    ['carbs', 'Carbs', 'g', 'var(--accent)'],
+    ['fat', 'Fat', 'g', 'var(--fat)'],
+    ['fibre', 'Fibre', 'g', 'var(--accent2)'],
+    ['sugar', 'Sugar', 'g', 'var(--sugar-c)'],
+  ];
+  const macroGrid = $('macroGrid');
+  macroGrid.replaceChildren();
+  macroDefs.forEach(([key, label, unit, color]) => {
+    const goal = Math.max(1, num(state.targets[key]));
+    const value = derived.todayTotals[key];
+    const percent = Math.min(100, Math.round((value / goal) * 100));
+    const item = document.createElement('div');
+    item.className = 'macro-item';
+    item.innerHTML = `
+      <div class="ring" style="--progress:${percent}%;--ring-color:${color}">
+        <div class="ring-hole"><strong>${Math.round(value * 10) / 10}${unit}</strong><span>of ${goal}${unit}</span></div>
+      </div>
+      <span class="macro-label">${label}</span>`;
+    macroGrid.appendChild(item);
+  });
+
+  $('waterLabel').textContent = `${derived.waterMl} / ${derived.waterGoalMl.toLocaleString()} ml`;
+  $('waterBar').style.width = `${derived.waterPercent}%`;
+}
+
+function quickAddFood(recent) {
+  const food = { name: recent.name, quantity: recent.quantity, unit: recent.unit, ...Object.fromEntries(NUTRIENTS.map(n => [n, num(recent[n])])) };
+  state.foods.push(food);
+  pushRecent(food);
+  save();
+}
+
+$('addWater50').addEventListener('click', () => { state.water = Number((state.water + 0.05).toFixed(2)); save(); });
+$('addWater250').addEventListener('click', () => { state.water = Number((state.water + 0.25).toFixed(2)); save(); });
+
+// ---------- Log tab ----------
+
+function setNutrientEditing(enabled) {
+  NUTRIENTS.forEach(n => { $(`food${n[0].toUpperCase()}${n.slice(1)}`).readOnly = !enabled; });
+}
+
+function setFoodValues(values) {
+  NUTRIENTS.forEach(n => {
+    const amount = values[n];
+    $(`food${n[0].toUpperCase()}${n.slice(1)}`).value = amount === null || amount === undefined ? '' : Number(num(amount).toFixed(1));
+  });
+}
+
+function pushRecent(food) {
+  state.recents = [
+    { name: food.name, quantity: food.quantity, unit: food.unit, ...Object.fromEntries(NUTRIENTS.map(n => [n, food[n]])) },
+    ...state.recents.filter(r => foodKey(r.name) !== foodKey(food.name)),
+  ].slice(0, 6);
+}
+
+function resetFoodForm() {
+  ui.form = freshForm();
+  $('foodForm').reset();
+  $('foodQuantity').value = 100;
+  $('foodUnit').value = 'g';
+  setNutrientEditing(false);
+  $('formTitle').textContent = 'Add food';
+  $('saveFood').textContent = 'Add to today';
+  $('cancelEdit').hidden = true;
+  $('lookupStatus').textContent = '';
+  $('photoStatus').textContent = 'Attach a photo for your own reference — enter the food name below to calculate nutrition.';
+  $('photoPreview').hidden = true;
+  $('photoPlaceholder').hidden = false;
+  $('photoInput').value = '';
+}
+
+function startEditFood(index) {
+  const food = state.foods[index];
+  ui.form.editingIndex = index;
+  ui.form.manualMode = true;
+  $('foodName').value = food.name;
+  $('foodQuantity').value = food.quantity || 100;
+  $('foodUnit').value = food.unit || 'g';
+  setFoodValues(food);
+  setNutrientEditing(true);
+  $('formTitle').textContent = 'Edit food';
+  $('lookupStatus').textContent = 'Editing saved entry. Unknown nutrient values may stay blank; blanks are not included in totals.';
+  $('saveFood').textContent = 'Update food';
+  $('cancelEdit').hidden = false;
+  showTab('log');
+}
+
+function removeFood(index) {
+  state.foods.splice(index, 1);
+  save();
+}
+
+function renderLog(derived) {
+  const foods = state.foods;
+  $('noFoodsNote').hidden = foods.length > 0;
+  const list = $('foodList');
+  list.replaceChildren();
+  foods.forEach((food, index) => {
+    const li = document.createElement('li');
+    const meta = document.createElement('div');
+    meta.className = 'entry-meta';
+    meta.innerHTML = `<strong>${food.name}</strong><p>${food.quantity}${food.unit} · ${Math.round(num(food.calories))} kcal · ${Math.round(num(food.protein) * 10) / 10}g protein</p>`;
+    const actions = document.createElement('div');
+    actions.className = 'entry-actions';
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button'; editBtn.className = 'edit-btn'; editBtn.textContent = 'Edit';
+    editBtn.addEventListener('click', () => startEditFood(index));
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button'; deleteBtn.className = 'delete-btn'; deleteBtn.textContent = 'Delete';
+    deleteBtn.addEventListener('click', () => removeFood(index));
+    actions.append(editBtn, deleteBtn);
+    li.append(meta, actions);
+    list.appendChild(li);
+  });
+}
+
+$('photoInput').addEventListener('change', event => {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    $('photoPreview').src = reader.result;
+    $('photoPreview').hidden = false;
+    $('photoPlaceholder').hidden = true;
+    $('photoStatus').textContent = 'Photo attached for your reference. Enter the food name and tap Calculate — automatic photo recognition needs a separate AI vision service.';
+  };
+  reader.readAsDataURL(file);
+});
+$('photoThumb').addEventListener('click', () => $('photoInput').click());
+
+$('calculateFood').addEventListener('click', async () => {
+  const name = $('foodName').value.trim();
+  const quantity = num($('foodQuantity').value);
+  const unit = $('foodUnit').value;
+  $('lookupStatus').textContent = quantity > 0 && name ? 'Finding nutrition values…' : '';
+  const result = await calculateFood(name, quantity, unit, state.customFoods);
+  $('lookupStatus').textContent = result.status;
+  if (result.values) {
+    setFoodValues(result.values);
+    ui.form.manualMode = result.manualMode;
+    setNutrientEditing(result.manualMode);
+  }
+});
+
+$('manualNutrition').addEventListener('click', () => {
+  ui.form.manualMode = true;
+  setNutrientEditing(true);
+  $('lookupStatus').textContent = 'Enter known nutrition values manually. Leave unknown values blank; blanks are not included in totals.';
+});
+
+$('cancelEdit').addEventListener('click', resetFoodForm);
+
+$('foodForm').addEventListener('submit', event => {
+  event.preventDefault();
+  const name = $('foodName').value.trim();
+  const quantity = num($('foodQuantity').value);
+  const unit = $('foodUnit').value;
+  const food = { name, quantity, unit };
+  const hasAllValues = NUTRIENTS.every(n => {
+    const field = $(`food${n[0].toUpperCase()}${n.slice(1)}`);
+    food[n] = field.value === '' ? null : num(field.value);
+    return field.value !== '';
+  });
+  if (!name || quantity <= 0 || (!ui.form.manualMode && !hasAllValues)) {
+    $('lookupStatus').textContent = 'Calculate nutrition or use Enter nutrition manually before saving.';
+    return;
+  }
+  if (ui.form.manualMode) {
+    const baseQuantity = comparableQuantity(name, quantity, unit);
+    state.customFoods[foodKey(name)] = { name, baseQuantity, ...Object.fromEntries(NUTRIENTS.map(n => [n, food[n]])) };
+  }
+  if (ui.form.editingIndex !== null) state.foods[ui.form.editingIndex] = food;
+  else state.foods.push(food);
+  pushRecent(food);
+  save();
+  resetFoodForm();
+});
+
+$('completeToday').addEventListener('click', () => {
+  if (!state.foods.length && state.water === 0) {
+    $('completeTodayMessage').textContent = 'Log some food or water first.';
+    setTimeout(() => { $('completeTodayMessage').textContent = ''; }, 2500);
+    return;
+  }
+  archiveCurrentDay(state);
+  save();
+  $('completeTodayMessage').textContent = 'Today saved to history.';
+  setTimeout(() => { $('completeTodayMessage').textContent = ''; }, 2500);
+});
+
+// ---------- Trends tab ----------
+
+function renderTrends(derived) {
+  $('weekRange').textContent = derived.weekRangeLabel;
+  $('weeklyGrade').textContent = derived.weeklyGrade;
+  $('weeklyScoreLabel').textContent = `${derived.weeklyScore}/100`;
+
+  const scoreDefs = [
+    ['Calories on target', derived.weekScore.cal, 'var(--accent)'],
+    ['Protein', derived.weekScore.protein, 'var(--accent2)'],
+    ['Fibre', derived.weekScore.fibre, 'var(--accent2)'],
+    ['Hydration', derived.weekScore.hyd, 'var(--water)'],
+    ['Sugar control', derived.weekScore.sugar, 'var(--sugar-c)'],
+  ];
+  renderScoreRows('scoreRows', scoreDefs.map(([label, value, color]) => ({ label, value: `${value}/100`, percent: value, color })));
+
+  const spark = $('sparkline');
+  spark.replaceChildren();
+  derived.sparkline.forEach(point => {
+    const bar = document.createElement('div');
+    bar.className = `spark-bar${point.isToday ? ' today' : ''}`;
+    bar.innerHTML = `<div class="bar" style="height:${point.heightPercent}%"></div><span>${point.label}</span>`;
+    spark.appendChild(bar);
+  });
+
+  const weeklyDefs = [
+    ['calories', 'Calories', 'kcal', 'var(--accent)'],
+    ['protein', 'Protein', 'g', 'var(--accent2)'],
+    ['carbs', 'Carbs', 'g', 'var(--accent)'],
+    ['fat', 'Fat', 'g', 'var(--fat)'],
+    ['fibre', 'Fibre', 'g', 'var(--accent2)'],
+    ['sugar', 'Sugar', 'g', 'var(--sugar-c)'],
+    ['water', 'Water', 'L', 'var(--water)'],
+  ];
+  const weeklyRows = weeklyDefs.map(([key, label, unit, color]) => {
+    const perDayTarget = num(state.targets[key]);
+    const target = Math.max(1, perDayTarget * 7);
+    const achieved = derived.weekly.weekly[key];
+    return {
+      label,
+      value: `${Math.round(achieved * 10) / 10}${unit === 'kcal' ? ' kcal' : ` ${unit}`}`,
+      target: `${Math.round(target * 10) / 10} ${unit}`,
+      percent: Math.min(100, Math.round((achieved / target) * 100)),
+      color,
+    };
+  });
+  renderScoreRows('weeklyRows', weeklyRows.map(r => ({ label: r.label, value: `${r.value} / ${r.target}`, percent: r.percent, color: r.color })));
+
+  $('noHistoryNote').hidden = state.history.length > 0;
+  const historyList = $('historyList');
+  historyList.replaceChildren();
+  state.history.forEach(h => {
+    const div = document.createElement('div');
+    const nutrientDefs = [
+      ['Protein', `${Math.round(num(h.protein) * 10) / 10}g`],
+      ['Carbs', `${Math.round(num(h.carbs) * 10) / 10}g`],
+      ['Fat', `${Math.round(num(h.fat) * 10) / 10}g`],
+      ['Fibre', `${Math.round(num(h.fibre) * 10) / 10}g`],
+      ['Sugar', `${Math.round(num(h.sugar) * 10) / 10}g`],
+      ['Water', `${Math.round(num(h.water) * 1000)}ml`],
+    ];
+    div.innerHTML = `
+      <div class="history-top"><strong>${h.date}</strong><strong>${Math.round(num(h.calories))} kcal</strong></div>
+      <div class="history-grid">${nutrientDefs.map(([label, value]) => `<div><span>${label}</span><strong>${value}</strong></div>`).join('')}</div>`;
+    historyList.appendChild(div);
+  });
+}
+
+function renderScoreRows(containerId, rows) {
+  const container = $(containerId);
+  container.replaceChildren();
+  rows.forEach(row => {
+    const div = document.createElement('div');
+    div.innerHTML = `
+      <div class="score-row-label"><span>${row.label}</span><span class="value">${row.value}</span></div>
+      <div class="score-row-track"><div class="score-row-fill" style="width:${row.percent}%;background:${row.color}"></div></div>`;
+    container.appendChild(div);
+  });
+}
+
+// ---------- Weight tab ----------
+
+$('logWeight').addEventListener('click', () => {
+  const kg = num($('weightInput').value);
+  if (kg <= 0 || kg > 500) {
+    $('weightMessage').textContent = 'Enter a valid weight in kg.';
+    return;
+  }
+  const id = state.currentDate;
+  state.weights = [...state.weights.filter(w => w.id !== id), { id, kg }].sort((a, b) => (a.id < b.id ? -1 : 1));
+  const canRecalc = num(state.profile.heightCm) > 0 && num(state.profile.age) > 0;
+  save();
+  $('weightInput').value = '';
+  $('weightMessage').textContent = canRecalc ? 'Weigh-in saved. Tap "Retune targets" to adjust your nutrition to the new weight.' : 'Weigh-in saved.';
+  setTimeout(() => { $('weightMessage').textContent = ''; }, 4000);
+});
+
+$('retuneTargets').addEventListener('click', applyComputedTargets);
+
+function applyComputedTargets() {
+  const targets = computeTargetsFromProfile(state.profile, latestWeight(state));
+  if (!targets) {
+    const msg = num(state.profile.heightCm) > 0 ? 'weightMessage' : 'profileMessage';
+    $(msg).textContent = 'Fill height, age and log at least one weigh-in first.';
+    setTimeout(() => { $(msg).textContent = ''; }, 3000);
+    return;
+  }
+  state.targets = targets;
+  save();
+  $('profileMessage').textContent = `Targets set for ${latestWeight(state)} kg. Recalculate anytime as your weight changes.`;
+  setTimeout(() => { $('profileMessage').textContent = ''; }, 4000);
+}
+
+function removeWeight(id) {
+  state.weights = state.weights.filter(w => w.id !== id);
+  save();
+}
+
+function renderWeight(derived) {
+  const hasWeights = state.weights.length > 0;
+  const canRetune = num(state.profile.heightCm) > 0 && num(state.profile.age) > 0 && hasWeights;
+  $('retuneTargets').hidden = !canRetune;
+
+  $('journeyCard').hidden = !derived.journey.active;
+  if (derived.journey.active) {
+    $('journeyLostLabel').textContent = derived.journey.lostLabel;
+    $('journeyBar').style.width = `${derived.journey.percent}%`;
+    $('journeyStartLabel').textContent = `Start ${derived.journey.startLabel}`;
+    $('journeyLeftLabel').textContent = derived.journey.leftLabel;
+    $('journeyGoalLabel').textContent = `Goal ${derived.journey.goalLabel}`;
+    $('journeyEtaLabel').textContent = derived.journey.etaLabel;
+    $('journeyEtaLabel').hidden = !derived.journey.etaLabel;
+  }
+
+  const idealRange = derived.idealRange;
+  $('idealWeightBlock').hidden = !idealRange;
+  $('noIdealNote').hidden = !!idealRange;
+  if (idealRange) {
+    $('idealRangeLabel').textContent = `${idealRange.min} – ${idealRange.max} kg`;
+    $('idealTargetLabel').textContent = `${idealRange.target} kg`;
+    $('idealScaleWrap').hidden = !hasWeights;
+    if (hasWeights) {
+      const current = latestWeight(state);
+      const percent = Math.max(0, Math.min(100, Math.round(((current - idealRange.min) / Math.max(0.1, idealRange.max - idealRange.min)) * 100)));
+      $('idealMarker').style.left = `${percent}%`;
+      const diff = Math.round((current - idealRange.target) * 10) / 10;
+      $('idealToGoLabel').textContent = `You're ${diff > 0 ? `${diff} kg above target` : diff < 0 ? `${Math.abs(diff)} kg below target` : 'right at your target'} (${current} kg now).`;
+    }
+  }
+
+  $('weightChartCard').hidden = !hasWeights;
+  $('weightEntriesSection').hidden = !hasWeights;
+  $('noWeightsNote').hidden = hasWeights;
+
+  if (hasWeights) {
+    const current = latestWeight(state);
+    $('currentWeightValue').textContent = current;
+    $('weightDeltaLabel').textContent = derived.weightDeltaLabel;
+
+    const bars = weightBarData(state.weights, 7);
+    const chart = $('weightChart');
+    chart.replaceChildren();
+    bars.forEach(bar => {
+      const div = document.createElement('div');
+      div.className = `spark-bar${bar.isLatest ? ' today' : ''}`;
+      div.innerHTML = `<div class="bar" style="height:${bar.heightPercent}%"></div><span>${bar.label}</span>`;
+      chart.appendChild(div);
+    });
+
+    const list = $('weightList');
+    list.replaceChildren();
+    [...state.weights].reverse().forEach(w => {
+      const li = document.createElement('li');
+      const label = document.createElement('span');
+      label.textContent = w.id ? displayDate(w.id) : '';
+      const right = document.createElement('div');
+      right.className = 'qty';
+      const kg = document.createElement('strong');
+      kg.textContent = `${w.kg} kg`;
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button'; removeBtn.className = 'round-add'; removeBtn.textContent = '×';
+      removeBtn.addEventListener('click', () => removeWeight(w.id));
+      right.append(kg, removeBtn);
+      li.append(label, right);
+      list.appendChild(li);
+    });
+  }
+}
+
+// ---------- Activity tab ----------
+
+$('syncDevice').addEventListener('click', () => {
+  $('syncMessage').textContent = 'Looking for your phone or watch…';
+  setTimeout(() => {
+    $('syncMessage').textContent = 'No connected health service on this device yet — enter today’s numbers manually below, they save instantly.';
+    setTimeout(() => { $('syncMessage').textContent = ''; }, 5000);
+  }, 1000);
+});
+
+function bumpActivity(key, amount) {
+  state.activityToday[key] = Math.max(0, num(state.activityToday[key]) + amount);
+  save();
+}
+
+function renderActivity(derived) {
+  const activityDefs = [
+    ['steps', 'Steps', 'var(--accent)', v => v.toLocaleString()],
+    ['burnKcal', 'Calories burned', 'var(--fat)', v => `${v} kcal`],
+    ['exMin', 'Exercise', 'var(--accent2)', v => `${v} min`],
+  ];
+  const rows = activityDefs.map(([key, label, color, fmt]) => {
+    const value = num(state.activityToday[key]);
+    const goal = Math.max(1, num(state.activityTargets[key]));
+    return { label, value: `${fmt(value)} / ${fmt(goal)}`, percent: Math.min(100, Math.round((value / goal) * 100)), color };
+  });
+  renderScoreRows('activityRows', rows);
+
+  const bumps = $('activityBumps');
+  bumps.replaceChildren();
+  [['steps', 1000, '+1,000 steps'], ['burnKcal', 50, '+50 kcal'], ['exMin', 10, '+10 min']].forEach(([key, amount, label]) => {
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'chip-button flex1'; btn.textContent = label;
+    btn.addEventListener('click', () => bumpActivity(key, amount));
+    bumps.appendChild(btn);
+  });
+
+  const fields = $('activityFields');
+  fields.replaceChildren();
+  [['steps', 'Steps'], ['burnKcal', 'Calories burned'], ['exMin', 'Exercise (min)']].forEach(([key, label]) => {
+    const wrap = document.createElement('label');
+    const input = document.createElement('input');
+    input.type = 'number'; input.min = '0'; input.value = state.activityToday[key];
+    input.addEventListener('change', () => { state.activityToday[key] = num(input.value); save(); });
+    wrap.append(label, input);
+    fields.appendChild(wrap);
+  });
+
+  const goalFields = $('activityGoalFields');
+  goalFields.replaceChildren();
+  [['steps', 'Steps / day'], ['burnKcal', 'Burn (kcal)'], ['exMin', 'Exercise (min)']].forEach(([key, label]) => {
+    const wrap = document.createElement('label');
+    const input = document.createElement('input');
+    input.type = 'number'; input.min = '0'; input.value = state.activityTargets[key];
+    input.addEventListener('change', () => { state.activityTargets[key] = num(input.value); save(); });
+    wrap.append(label, input);
+    goalFields.appendChild(wrap);
+  });
+
+  const historyRows = state.history.filter(h => h.steps != null || h.burnKcal != null || h.exMin != null);
+  $('noActivityHistoryNote').hidden = historyRows.length > 0;
+  const list = $('activityHistoryList');
+  list.replaceChildren();
+  historyRows.forEach(h => {
+    const div = document.createElement('div');
+    div.innerHTML = `<strong>${h.date}</strong>
+      <div style="display:flex;gap:12px">
+        <span class="muted small">${num(h.steps).toLocaleString()} steps</span>
+        <span class="muted small">${num(h.burnKcal)} kcal</span>
+        <span class="muted small">${num(h.exMin)} min</span>
+      </div>`;
+    list.appendChild(div);
+  });
+}
+
+// ---------- Profile tab ----------
+
+function resizeAvatar(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const size = 160;
+        const canvas = document.createElement('canvas');
+        canvas.width = size; canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        const scale = Math.max(size / img.width, size / img.height);
+        const w = img.width * scale, h = img.height * scale;
+        ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+        resolve(canvas.toDataURL('image/jpeg', 0.82));
+      };
+      img.onerror = reject;
+      img.src = reader.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function handleAvatarInput(event) {
+  const file = event.target.files[0];
+  event.target.value = '';
+  if (!file) return;
+  state.avatar = await resizeAvatar(file);
+  save();
+}
+
+$('avatarCameraInput').addEventListener('change', handleAvatarInput);
+$('avatarGalleryInput').addEventListener('change', handleAvatarInput);
+$('removeAvatar').addEventListener('click', () => { state.avatar = ''; save(); });
+
+$('profileNameInput').addEventListener('change', () => {
+  state.displayName = $('profileNameInput').value.trim();
+  save();
+});
+
+const PROFILE_FIELD_IDS = { heightCm: 'profileHeight', age: 'profileAge', sex: 'profileSex', activity: 'profileActivity', goal: 'profileGoal', goalWeight: 'profileGoalWeight', pace: 'profilePace' };
+Object.entries(PROFILE_FIELD_IDS).forEach(([key, id]) => {
+  $(id).addEventListener('change', () => {
+    state.profile[key] = $(id).value;
+    save();
+  });
+});
+
+$('applyComputedTargets').addEventListener('click', applyComputedTargets);
+
+const TARGET_FIELD_DEFS = [
+  ['calories', 'Calories'], ['protein', 'Protein (g)'], ['carbs', 'Carbs (g)'],
+  ['fat', 'Fat (g)'], ['fibre', 'Fibre (g)'], ['sugar', 'Sugar (g)'], ['water', 'Water (L)'],
+];
+
+$('targetsForm').addEventListener('submit', event => {
+  event.preventDefault();
+  save();
+});
+
+$('downloadBackup').addEventListener('click', () => exportBackupFile(state));
+$('restoreFile').addEventListener('change', async event => {
+  const file = event.target.files[0];
+  event.target.value = '';
+  if (!file) return;
+  if (!confirm('Replace the current entries with this backup?')) return;
+  try {
+    state = await readBackupFile(file);
+    save();
+    alert('Your backup has been restored.');
+  } catch {
+    alert('This backup file could not be read. Please choose a Nutrition Pulse backup file.');
+  }
+});
+
+$('themeToggle').addEventListener('click', () => {
+  state.theme = state.theme === 'light' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', state.theme);
+  save();
+});
+
+function renderProfile() {
+  const hasAvatar = !!state.avatar;
+  $('profileAvatarImg').hidden = !hasAvatar;
+  $('profileAvatarPlaceholder').hidden = hasAvatar;
+  if (hasAvatar) $('profileAvatarImg').src = state.avatar;
+  $('removeAvatar').hidden = !hasAvatar;
+  if (document.activeElement !== $('profileNameInput')) $('profileNameInput').value = state.displayName;
+
+  Object.entries(PROFILE_FIELD_IDS).forEach(([key, id]) => { $(id).value = state.profile[key]; });
+
+  const fields = $('targetFields');
+  fields.replaceChildren();
+  TARGET_FIELD_DEFS.forEach(([key, label]) => {
+    const wrap = document.createElement('label');
+    const input = document.createElement('input');
+    input.type = 'number'; input.min = '0'; input.step = key === 'water' ? '0.1' : '1'; input.value = state.targets[key];
+    input.addEventListener('change', () => { state.targets[key] = num(input.value); save(); });
+    wrap.append(label, input);
+    fields.appendChild(wrap);
+  });
+
+  document.documentElement.setAttribute('data-theme', state.theme);
+}
+
+// ---------- Derived data + full render ----------
+
+function computeDerived() {
+  const todayTotals = totalsFor(state.foods);
+  const waterMl = Math.round(state.water * 1000);
+  const waterGoalMl = Math.max(50, num(state.targets.water) * 1000);
+  const waterPercent = Math.min(100, Math.round((waterMl / waterGoalMl) * 100));
+
+  const calorieGoal = Math.max(1, num(state.targets.calories));
+  const caloriePercent = Math.min(100, Math.round((todayTotals.calories / calorieGoal) * 100));
+  const remaining = Math.max(0, Math.round(calorieGoal - todayTotals.calories));
+
+  const proteinGoal = Math.max(1, num(state.targets.protein));
+  const proteinPercent = Math.min(100, Math.round((todayTotals.protein / proteinGoal) * 100));
+  const proteinRemaining = Math.max(0, Math.round((proteinGoal - todayTotals.protein) * 10) / 10);
+
+  const streak = computeStreak(state);
+  const weekScore = weeklyScoreParts(state, todayTotals);
+  const weeklyScore = weekScore.total;
+  const weeklyGrade = gradeForScore(weeklyScore);
+  const sparkline = sparklineData(state, todayTotals);
+  const weekly = weeklyData(state, todayTotals);
+
+  let weightDeltaLabel = 'first entry';
+  if (state.weights.length > 1) {
+    const latest = state.weights[state.weights.length - 1];
+    const cutoff = new Date(`${latest.id}T00:00:00`);
+    cutoff.setDate(cutoff.getDate() - 7);
+    const cutKey = dayKey(cutoff);
+    const ref = [...state.weights].reverse().find(w => w.id <= cutKey) || state.weights[0];
+    const delta = Math.round((latest.kg - ref.kg) * 10) / 10;
+    weightDeltaLabel = delta < 0 ? `▾ ${Math.abs(delta)} kg this week` : delta > 0 ? `▴ ${delta} kg this week` : '— steady this week';
+  }
+
+  return {
+    todayTotals, waterMl, waterGoalMl, waterPercent,
+    calorieGoal, caloriePercent, calories: Math.round(todayTotals.calories),
+    caloriesRemainingLabel: remaining > 0 ? `${remaining} kcal left` : 'Calorie goal reached',
+    proteinGoal, proteinPercent, proteinValue: Math.round(todayTotals.protein * 10) / 10,
+    proteinRemainingLabel: proteinRemaining > 0 ? `${proteinRemaining}g protein left` : 'Protein goal reached',
+    streak,
+    todayLabel: new Date(`${state.currentDate}T00:00:00`).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' }),
+    firstName: greetingName(),
+    weeklyScore, weeklyGrade, weekScore, sparkline, weekly,
+    weekRangeLabel: `${displayDate(dayKey(weekly.start))} – ${displayDate(dayKey(weekly.end))}`,
+    weightDeltaLabel,
+    idealRange: idealWeightRange(state.profile),
+    journey: weightJourney(state),
+  };
+}
+
+function render() {
+  rolloverIfNewDay(state);
+  const derived = computeDerived();
+  renderHeader(derived);
+  renderToday(derived);
+  renderLog(derived);
+  renderTrends(derived);
+  renderWeight(derived);
+  renderActivity(derived);
+  renderProfile();
+  renderNav();
+}
+
+// ---------- Bootstrap ----------
+
+function scheduleMidnightCheck() {
+  const now = new Date();
+  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  setTimeout(() => { if (currentUser) render(); scheduleMidnightCheck(); }, midnight - now + 1000);
+}
+
+document.addEventListener('visibilitychange', () => { if (!document.hidden && currentUser) render(); });
+
+watchAuthState(async user => {
+  currentUser = user;
+  if (!user) {
+    $('mainApp').hidden = true;
+    $('authScreen').hidden = false;
+    $('authPassword').value = '';
+    renderAuthScreen();
+    return;
+  }
+  $('authScreen').hidden = true;
+  $('mainApp').hidden = false;
+  try {
+    const cloudState = await loadCloudState(user.uid);
+    if (cloudState) {
+      state = normalizeState(cloudState);
+    } else {
+      const cached = localStorage.getItem(userCacheKey(user.uid));
+      if (cached) state = normalizeState(JSON.parse(cached));
+    }
+    saveLocalState(state, user.uid);
+  } catch {
+    const recovered = await recoverIndexedBackup();
+    if (recovered) state = normalizeState(recovered);
+  }
+  showTab('today');
+  render();
+});
+
+renderAuthScreen();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js');
+scheduleMidnightCheck();

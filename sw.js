@@ -1,1 +1,31 @@
-const cacheName='nutrition-pulse-v9';self.addEventListener('install',e=>e.waitUntil(caches.open(cacheName).then(c=>c.addAll(['./','./index.html','./styles.css','./app.js','./manifest.webmanifest','./icon.svg']))));self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key!==cacheName).map(key=>caches.delete(key)))).then(()=>self.clients.claim())));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));
+const cacheName = 'nutrition-pulse-v2-1';
+const assets = [
+  './',
+  './index.html',
+  './styles.css',
+  './app.js',
+  './manifest.webmanifest',
+  './icon.svg',
+  './src/constants.js',
+  './src/utils.js',
+  './src/state.js',
+  './src/calculations.js',
+  './src/food-lookup.js',
+  './src/firebase-sync.js',
+];
+
+self.addEventListener('install', event => {
+  event.waitUntil(caches.open(cacheName).then(cache => cache.addAll(assets)));
+});
+
+self.addEventListener('activate', event => {
+  event.waitUntil(
+    caches.keys()
+      .then(keys => Promise.all(keys.filter(key => key !== cacheName).map(key => caches.delete(key))))
+      .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener('fetch', event => {
+  event.respondWith(caches.match(event.request).then(response => response || fetch(event.request)));
+});
