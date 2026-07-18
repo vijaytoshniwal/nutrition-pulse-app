@@ -8,7 +8,8 @@ import {
   computeStreak, weeklyData, weeklyScoreParts, gradeForScore, sparklineData,
   latestWeight, idealWeightRange, computeTargetsFromProfile, weightBarData, weightJourney,
 } from './src/calculations.js';
-import { comparableQuantity, calculateFood } from './src/food-lookup.js';
+import { comparableQuantity, calculateFood, findFoodByPhotoHash } from './src/food-lookup.js';
+import { computeImageHash, isSimilarPhoto } from './src/image-hash.js';
 import { watchAuthState, signIn, signUp, signOutUser, resetPassword, loadCloudState, saveCloudState } from './src/firebase-sync.js';
 
 let state = loadLocalState();
@@ -24,7 +25,7 @@ function freshForm() {
     name: '', quantity: 100, unit: 'g',
     calories: '', protein: '', carbs: '', fat: '', fibre: '', sugar: '',
     manualMode: false, editingIndex: null, lookupStatus: '',
-    photoDataUrl: '', photoStatus: '',
+    photoDataUrl: '', photoStatus: '', photoHash: null,
   };
 }
 
@@ -311,11 +312,32 @@ $('photoInput').addEventListener('change', event => {
   const file = event.target.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = () => {
+  reader.onload = async () => {
     $('photoPreview').src = reader.result;
     $('photoPreview').hidden = false;
     $('photoPlaceholder').hidden = true;
-    $('photoStatus').textContent = 'Photo attached for your reference. Enter the food name and tap Calculate — automatic photo recognition needs a separate AI vision service.';
+    $('photoStatus').textContent = 'Reading photo…';
+    try {
+      const hash = await computeImageHash(reader.result);
+      ui.form.photoHash = hash;
+      const match = findFoodByPhotoHash(hash, state.customFoods);
+      if (match) {
+        $('foodName').value = match.name;
+        $('photoStatus').textContent = `Recognized from your saved foods: ${match.name}.`;
+        const quantity = num($('foodQuantity').value) || match.baseQuantity || 100;
+        const result = await calculateFood(match.name, quantity, $('foodUnit').value, state.customFoods);
+        if (result.values) {
+          setFoodValues(result.values);
+          ui.form.manualMode = result.manualMode;
+          setNutrientEditing(result.manualMode);
+        }
+        $('lookupStatus').textContent = result.status;
+      } else {
+        $('photoStatus').textContent = 'New photo — enter the food name and tap Calculate. We’ll remember this photo so you don’t have to type the name next time.';
+      }
+    } catch {
+      $('photoStatus').textContent = 'Photo attached for your reference. Enter the food name and tap Calculate.';
+    }
   };
   reader.readAsDataURL(file);
 });
@@ -358,9 +380,15 @@ $('foodForm').addEventListener('submit', event => {
     $('lookupStatus').textContent = 'Calculate nutrition or use Enter nutrition manually before saving.';
     return;
   }
-  if (ui.form.manualMode) {
+  if (ui.form.manualMode || ui.form.photoHash) {
     const baseQuantity = comparableQuantity(name, quantity, unit);
-    state.customFoods[foodKey(name)] = { name, baseQuantity, ...Object.fromEntries(NUTRIENTS.map(n => [n, food[n]])) };
+    const existing = state.customFoods[foodKey(name)];
+    const photoHashes = existing && existing.photoHashes ? [...existing.photoHashes] : [];
+    if (ui.form.photoHash && !photoHashes.some(saved => isSimilarPhoto(ui.form.photoHash, saved))) {
+      photoHashes.push(ui.form.photoHash);
+      if (photoHashes.length > 5) photoHashes.shift();
+    }
+    state.customFoods[foodKey(name)] = { name, baseQuantity, photoHashes, ...Object.fromEntries(NUTRIENTS.map(n => [n, food[n]])) };
   }
   if (ui.form.editingIndex !== null) state.foods[ui.form.editingIndex] = food;
   else state.foods.push(food);
