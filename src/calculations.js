@@ -132,6 +132,51 @@ export function computeTargetsFromProfile(profile, weightKg) {
   return { calories, protein, carbs, fat, fibre, sugar, water };
 }
 
+/**
+ * Fits a straight line through all weigh-ins (least-squares linear regression,
+ * days-since-first-entry vs kg) so the trend reflects the actual observed
+ * rate of change rather than the flat pace assumption in the profile. Returns
+ * null when there isn't enough data or the trend is flat.
+ */
+export function computeWeightForecast(weights, goalWeight) {
+  if (weights.length < 2) return null;
+  const firstDate = new Date(`${weights[0].id}T00:00:00`);
+  const points = weights.map(w => ({
+    x: (new Date(`${w.id}T00:00:00`) - firstDate) / 86400000,
+    y: w.kg,
+  }));
+  const n = points.length;
+  const sumX = points.reduce((a, p) => a + p.x, 0);
+  const sumY = points.reduce((a, p) => a + p.y, 0);
+  const sumXY = points.reduce((a, p) => a + p.x * p.y, 0);
+  const sumXX = points.reduce((a, p) => a + p.x * p.x, 0);
+  const denom = n * sumXX - sumX * sumX;
+  if (denom === 0) return null;
+
+  const slope = (n * sumXY - sumX * sumY) / denom;
+  const intercept = (sumY - slope * sumX) / n;
+  const weeklyRate = Math.round(slope * 7 * 10) / 10;
+  const lastX = points[points.length - 1].x;
+
+  let etaLabel = '';
+  if (goalWeight > 0 && Math.abs(slope) > 0.001) {
+    const goalX = (goalWeight - intercept) / slope;
+    const daysToGoal = goalX - lastX;
+    if (daysToGoal > 0 && daysToGoal < 365 * 2) {
+      const eta = new Date();
+      eta.setDate(eta.getDate() + Math.round(daysToGoal));
+      etaLabel = `At this rate (${weeklyRate >= 0 ? '+' : ''}${weeklyRate} kg/week), you'll reach ${goalWeight} kg around ${eta.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}.`;
+    }
+  }
+
+  const projected = [1, 2, 3, 4].map(weeksOut => ({
+    weeksOut,
+    kg: Math.round((slope * (lastX + weeksOut * 7) + intercept) * 10) / 10,
+  }));
+
+  return { weeklyRate, etaLabel, projected };
+}
+
 export function weightBarData(weights, count) {
   const w = weights.slice(-count);
   if (!w.length) return [];
