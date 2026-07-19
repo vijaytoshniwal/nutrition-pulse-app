@@ -12,7 +12,7 @@ import { comparableQuantity, calculateFood, findFoodByPhotoHash } from './src/fo
 import { computeImageHash, isSimilarPhoto } from './src/image-hash.js';
 import { checkPaceAlerts, notificationsSupported, requestNotificationPermission, fireNotification } from './src/alerts.js';
 import { isBarcodeScanSupported, scanBarcodeFromCamera, lookupBarcode } from './src/barcode.js';
-import { watchAuthState, signIn, signUp, signOutUser, resetPassword, loadCloudState, saveCloudState } from './src/firebase-sync.js';
+import { watchAuthState, signIn, signUp, signOutUser, resetPassword, loadCloudState, saveCloudState, saveFoodBankEntry } from './src/firebase-sync.js';
 
 /** Mobile browsers report 100vh as if the address bar were hidden, so measure the
  * real visible height in JS instead of trusting CSS vh units alone. */
@@ -26,6 +26,17 @@ if (window.visualViewport) window.visualViewport.addEventListener('resize', sync
 
 let state = loadLocalState();
 let currentUser = null;
+
+// 'auto' theme follows the device's light/dark preference live.
+const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+function resolvedTheme() {
+  return state.theme === 'auto' ? (darkQuery.matches ? 'dark' : 'light') : state.theme;
+}
+function applyTheme() {
+  document.documentElement.setAttribute('data-theme', resolvedTheme());
+}
+darkQuery.addEventListener('change', () => { if (state.theme === 'auto') { applyTheme(); render(); } });
+applyTheme();
 
 const ui = {
   tab: 'today',
@@ -459,7 +470,9 @@ $('foodForm').addEventListener('submit', event => {
       photoHashes.push(ui.form.photoHash);
       if (photoHashes.length > 5) photoHashes.shift();
     }
-    state.customFoods[foodKey(name)] = { name, baseQuantity, photoHashes, ...Object.fromEntries(NUTRIENTS.map(n => [n, food[n]])) };
+    const nutrients = Object.fromEntries(NUTRIENTS.map(n => [n, food[n]]));
+    state.customFoods[foodKey(name)] = { name, baseQuantity, photoHashes, ...nutrients };
+    if (ui.form.manualMode) saveFoodBankEntry(foodKey(name), { name, baseQuantity, ...nutrients });
   }
   if (ui.form.editingIndex !== null) state.foods[ui.form.editingIndex] = food;
   else state.foods.push(food);
@@ -499,11 +512,16 @@ function renderTrends(derived) {
   renderScoreRows('scoreRows', scoreDefs.map(([label, value, color]) => ({ label, value: `${value}/100`, percent: value, color })));
 
   const spark = $('sparkline');
+  spark.classList.add('with-values');
   spark.replaceChildren();
   derived.sparkline.forEach(point => {
     const bar = document.createElement('div');
+    const status = point.overLimit ? 'over' : 'under';
     bar.className = `spark-bar${point.isToday ? ' today' : ''}`;
-    bar.innerHTML = `<div class="bar" style="height:${point.heightPercent}%"></div><span>${point.label}</span>`;
+    bar.innerHTML = `
+      <span class="spark-value ${status}">${point.calories}</span>
+      <div class="bar ${status}" style="height:${point.heightPercent}%"></div>
+      <span>${point.label}</span>`;
     spark.appendChild(bar);
   });
 
@@ -531,9 +549,20 @@ function renderTrends(derived) {
   renderScoreRows('weeklyRows', weeklyRows.map(r => ({ label: r.label, value: `${r.value} / ${r.target}`, percent: r.percent, color: r.color })));
 
   $('noHistoryNote').hidden = state.history.length > 0;
+  const from = $('historyFrom').value;
+  const to = $('historyTo').value;
+  let entries = state.history;
+  if (from) entries = entries.filter(h => h.id >= from);
+  if (to) entries = entries.filter(h => h.id <= to);
+  if (!from && !to) {
+    entries = entries.slice(0, 2);
+    $('historyRangeNote').textContent = state.history.length > 2 ? `Showing the latest 2 of ${state.history.length} days — pick a date range above to see more.` : '';
+  } else {
+    $('historyRangeNote').textContent = `${entries.length} day${entries.length === 1 ? '' : 's'} in this range.`;
+  }
   const historyList = $('historyList');
   historyList.replaceChildren();
-  state.history.forEach(h => {
+  entries.forEach(h => {
     const div = document.createElement('div');
     const nutrientDefs = [
       ['Protein', `${Math.round(num(h.protein) * 10) / 10}g`],
@@ -544,11 +573,14 @@ function renderTrends(derived) {
       ['Water', `${Math.round(num(h.water) * 1000)}ml`],
     ];
     div.innerHTML = `
-      <div class="history-top"><strong>${h.date}</strong><strong>${Math.round(num(h.calories))} kcal</strong></div>
+      <div class="history-top"><strong>${h.id ? displayDate(h.id) : h.date}</strong><strong>${Math.round(num(h.calories))} kcal</strong></div>
       <div class="history-grid">${nutrientDefs.map(([label, value]) => `<div><span>${label}</span><strong>${value}</strong></div>`).join('')}</div>`;
     historyList.appendChild(div);
   });
 }
+
+$('historyFrom').addEventListener('change', render);
+$('historyTo').addEventListener('change', render);
 
 function renderScoreRows(containerId, rows) {
   const container = $(containerId);
@@ -750,7 +782,7 @@ function renderActivity(derived) {
   list.replaceChildren();
   historyRows.forEach(h => {
     const div = document.createElement('div');
-    div.innerHTML = `<strong>${h.date}</strong>
+    div.innerHTML = `<strong>${h.id ? displayDate(h.id) : h.date}</strong>
       <div style="display:flex;gap:12px">
         <span class="muted small">${num(h.steps).toLocaleString()} steps</span>
         <span class="muted small">${num(h.burnKcal)} kcal</span>
@@ -808,6 +840,7 @@ $('addPresetItem').addEventListener('click', async () => {
     // Remember the typed values app-wide so future lookups (here and in Add food) find this food.
     const baseQuantity = comparableQuantity(name, quantity, unit);
     state.customFoods[foodKey(name)] = { name, baseQuantity, ...manualValues };
+    saveFoodBankEntry(foodKey(name), { name, baseQuantity, ...manualValues });
     addDraftItem(name, quantity, unit, manualValues);
     save();
     return;
@@ -1020,8 +1053,16 @@ $('restoreFile').addEventListener('change', async event => {
 });
 
 $('themeToggle').addEventListener('click', () => {
-  state.theme = state.theme === 'light' ? 'dark' : 'light';
-  document.documentElement.setAttribute('data-theme', state.theme);
+  state.theme = resolvedTheme() === 'dark' ? 'light' : 'dark';
+  state.themeChosen = true;
+  applyTheme();
+  save();
+});
+
+$('themeAuto').addEventListener('click', () => {
+  state.theme = 'auto';
+  state.themeChosen = true;
+  applyTheme();
   save();
 });
 
@@ -1093,9 +1134,11 @@ function renderProfile() {
     fields.appendChild(wrap);
   });
 
-  document.documentElement.setAttribute('data-theme', state.theme);
-  $('themeToggle').classList.toggle('on', state.theme === 'dark');
+  applyTheme();
+  $('themeToggle').classList.toggle('on', resolvedTheme() === 'dark');
   $('alertsToggle').classList.toggle('on', !!state.alertsEnabled);
+  $('themeModeNote').textContent = state.theme === 'auto' ? 'Following your device setting.' : `Fixed to ${state.theme} mode.`;
+  $('themeAuto').hidden = state.theme === 'auto';
 }
 
 // ---------- Derived data + full render ----------

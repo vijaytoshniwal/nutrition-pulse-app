@@ -195,6 +195,11 @@
           </div>
 
           <div class="list-head"><h2>Daily history</h2></div>
+          <div class="field-row">
+            <label class="flex1">From<input id="historyFrom" type="date"></label>
+            <label class="flex1">To<input id="historyTo" type="date"></label>
+          </div>
+          <p id="historyRangeNote" class="muted small"></p>
           <p id="noHistoryNote" class="muted small empty-note">Completed days will appear here.</p>
           <div id="historyList" class="history-list"></div>
         </section>
@@ -400,6 +405,10 @@
             <div class="section-head">
               <span>Dark mode</span>
               <button id="themeToggle" class="theme-switch" type="button"><span class="theme-knob"></span></button>
+            </div>
+            <div class="section-head">
+              <p id="themeModeNote" class="muted small"></p>
+              <button id="themeAuto" type="button" class="chip-button" hidden>Use device setting</button>
             </div>
           </div>
 

@@ -392,10 +392,16 @@ label { display: flex; flex-direction: column; gap: 5px; font-size: .72rem; colo
 .grade-badge span { font-size: .56rem; font-weight: 800; }
 
 .sparkline { display: flex; align-items: flex-end; gap: 8px; height: 72px; }
-.spark-bar { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 6px; height: 100%; }
+.sparkline.with-values { height: 88px; }
+.spark-bar { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 6px; height: 100%; min-width: 0; }
 .spark-bar .bar { width: 100%; border-radius: 6px 6px 3px 3px; background: var(--track); transition: height .5s ease; }
 .spark-bar.today .bar { background: var(--accent); }
+.spark-bar .bar.under { background: var(--accent); }
+.spark-bar .bar.over { background: var(--danger); }
 .spark-bar span { font-size: .64rem; color: var(--muted); }
+.spark-value { font-size: .5rem; font-weight: 800; line-height: 1; }
+.spark-value.under { color: var(--accent); }
+.spark-value.over { color: var(--danger); }
 
 .history-list { display: flex; flex-direction: column; gap: 10px; }
 .history-list > div { flex-direction: column; align-items: stretch; gap: 10px; }
