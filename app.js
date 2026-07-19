@@ -8,11 +8,11 @@ import {
   computeStreak, weeklyData, weeklyScoreParts, gradeForScore, sparklineData,
   latestWeight, idealWeightRange, computeTargetsFromProfile, weightBarData, weightJourney, computeWeightForecast,
 } from './src/calculations.js';
-import { comparableQuantity, calculateFood, findFoodByPhotoHash } from './src/food-lookup.js';
+import { comparableQuantity, calculateFood, findFoodByPhotoHash, searchFoods, scaleFoodDbItem } from './src/food-lookup.js';
 import { computeImageHash, isSimilarPhoto } from './src/image-hash.js';
 import { checkPaceAlerts, notificationsSupported, requestNotificationPermission, fireNotification } from './src/alerts.js';
 import { isBarcodeScanSupported, scanBarcodeFromCamera, lookupBarcode } from './src/barcode.js';
-import { watchAuthState, signIn, signUp, signOutUser, resetPassword, loadCloudState, saveCloudState, saveFoodBankEntry, fetchActivitySync, FIREBASE_PROJECT_ID } from './src/firebase-sync.js';
+import { watchAuthState, signIn, signUp, signOutUser, resetPassword, loadCloudState, saveCloudState, submitFoodForReview, fetchActivitySync, isAdmin, fetchPendingFoods, approvePendingFood, rejectPendingFood, FIREBASE_PROJECT_ID } from './src/firebase-sync.js';
 import { recognizeTextInImage, parseActivityFromText } from './src/activity-ocr.js';
 
 /** Mobile browsers report 100vh as if the address bar were hidden, so measure the
@@ -426,6 +426,50 @@ $('scannerCancel').addEventListener('click', () => {
   $('scannerOverlay').hidden = true;
 });
 
+// ---------- Search-as-you-type food suggestions ----------
+
+/**
+ * Wires live suggestions from the built-in Indian food database onto a text
+ * input. onPick(item) fires when the user taps a suggestion. Respects the
+ * vegetarian-only preference.
+ */
+function attachFoodSuggest(inputId, listId, onPick) {
+  const input = $(inputId);
+  const list = $(listId);
+  let items = [];
+
+  function close() { list.hidden = true; list.replaceChildren(); }
+
+  function render() {
+    items = searchFoods(input.value, state.vegOnly);
+    if (!items.length) { close(); return; }
+    list.replaceChildren();
+    items.forEach(item => {
+      const li = document.createElement('li');
+      li.innerHTML = `
+        <span class="suggest-name"><span class="suggest-veg ${item.v ? 'veg' : 'nonveg'}"></span>${item.n}</span>
+        <span class="suggest-meta">${item.k} kcal · ${item.sl}</span>`;
+      li.addEventListener('mousedown', event => { event.preventDefault(); onPick(item); close(); });
+      list.appendChild(li);
+    });
+    list.hidden = false;
+  }
+
+  input.addEventListener('input', render);
+  input.addEventListener('focus', () => { if (input.value.trim().length >= 2) render(); });
+  input.addEventListener('blur', () => setTimeout(close, 150));
+}
+
+attachFoodSuggest('foodName', 'foodSuggestions', item => {
+  $('foodName').value = item.n;
+  $('foodQuantity').value = item.sg;
+  $('foodUnit').value = 'g';
+  setFoodValues(scaleFoodDbItem(item, item.sg / 100));
+  ui.form.manualMode = false;
+  setNutrientEditing(false);
+  $('lookupStatus').textContent = `Filled from the Indian food database (${item.n}, ${item.sl}). Change the quantity and tap Calculate to rescale.`;
+});
+
 $('calculateFood').addEventListener('click', async () => {
   const name = $('foodName').value.trim();
   const quantity = num($('foodQuantity').value);
@@ -473,7 +517,7 @@ $('foodForm').addEventListener('submit', event => {
     }
     const nutrients = Object.fromEntries(NUTRIENTS.map(n => [n, food[n]]));
     state.customFoods[foodKey(name)] = { name, baseQuantity, photoHashes, ...nutrients };
-    if (ui.form.manualMode) saveFoodBankEntry(foodKey(name), { name, baseQuantity, ...nutrients });
+    if (ui.form.manualMode) submitFoodForReview(foodKey(name), { name, baseQuantity, ...nutrients });
   }
   if (ui.form.editingIndex !== null) state.foods[ui.form.editingIndex] = food;
   else state.foods.push(food);
@@ -860,6 +904,13 @@ function renderActivity(derived) {
 
 // ---------- Meals (presets) tab ----------
 
+attachFoodSuggest('presetItemName', 'presetSuggestions', item => {
+  $('presetItemName').value = item.n;
+  $('presetItemQuantity').value = item.sg;
+  $('presetItemUnit').value = 'g';
+  $('presetItemStatus').textContent = `${item.n} selected — tap Add item to include it.`;
+});
+
 const PRESET_NUTRIENT_IDS = { calories: 'presetCalories', protein: 'presetProtein', carbs: 'presetCarbs', fat: 'presetFat', fibre: 'presetFibre', sugar: 'presetSugar' };
 
 function readPresetManualValues() {
@@ -906,7 +957,7 @@ $('addPresetItem').addEventListener('click', async () => {
     // Remember the typed values app-wide so future lookups (here and in Add food) find this food.
     const baseQuantity = comparableQuantity(name, quantity, unit);
     state.customFoods[foodKey(name)] = { name, baseQuantity, ...manualValues };
-    saveFoodBankEntry(foodKey(name), { name, baseQuantity, ...manualValues });
+    submitFoodForReview(foodKey(name), { name, baseQuantity, ...manualValues });
     addDraftItem(name, quantity, unit, manualValues);
     save();
     return;
@@ -1153,6 +1204,41 @@ $('alertsToggle').addEventListener('click', async () => {
   save();
 });
 
+$('vegToggle').addEventListener('click', () => {
+  state.vegOnly = !state.vegOnly;
+  save();
+});
+
+// ---------- Admin: food bank moderation ----------
+
+$('refreshPending').addEventListener('click', renderPendingFoods);
+
+async function renderPendingFoods() {
+  if (!isAdmin()) { $('adminCard').hidden = true; return; }
+  $('adminCard').hidden = false;
+  const pending = await fetchPendingFoods();
+  $('noPendingNote').hidden = pending.length > 0;
+  const list = $('pendingList');
+  list.replaceChildren();
+  pending.forEach(entry => {
+    const li = document.createElement('li');
+    const meta = document.createElement('div');
+    meta.className = 'entry-meta';
+    meta.innerHTML = `<strong>${entry.name}</strong><p>${Math.round(num(entry.calories))} kcal · ${Math.round(num(entry.protein) * 10) / 10}g protein · per ${entry.baseQuantity || 100}g${entry.submittedBy ? ` · by ${entry.submittedBy}` : ''}</p>`;
+    const actions = document.createElement('div');
+    actions.className = 'entry-actions';
+    const approveBtn = document.createElement('button');
+    approveBtn.type = 'button'; approveBtn.className = 'edit-btn'; approveBtn.textContent = 'Approve';
+    approveBtn.addEventListener('click', async () => { await approvePendingFood(entry.key, entry); renderPendingFoods(); });
+    const rejectBtn = document.createElement('button');
+    rejectBtn.type = 'button'; rejectBtn.className = 'delete-btn'; rejectBtn.textContent = 'Reject';
+    rejectBtn.addEventListener('click', async () => { await rejectPendingFood(entry.key); renderPendingFoods(); });
+    actions.append(approveBtn, rejectBtn);
+    li.append(meta, actions);
+    list.appendChild(li);
+  });
+}
+
 let alertBannerTimer = null;
 function showInAppAlert(title, body) {
   $('alertBannerTitle').textContent = title;
@@ -1203,9 +1289,11 @@ function renderProfile() {
   applyTheme();
   $('themeToggle').classList.toggle('on', resolvedTheme() === 'dark');
   $('alertsToggle').classList.toggle('on', !!state.alertsEnabled);
+  $('vegToggle').classList.toggle('on', !!state.vegOnly);
   $('themeModeNote').textContent = state.theme === 'auto' ? 'Following your device setting.' : `Fixed to ${state.theme} mode.`;
   $('themeAuto').hidden = state.theme === 'auto';
   renderWatchSyncInstructions();
+  $('adminCard').hidden = !isAdmin();
 }
 
 function renderWatchSyncInstructions() {
@@ -1355,6 +1443,7 @@ watchAuthState(async user => {
   showTab('today');
   render();
   applyActivitySync({ silent: true });
+  if (isAdmin()) renderPendingFoods();
 });
 
 $('appVersion').textContent = `Version ${APP_VERSION}`;
