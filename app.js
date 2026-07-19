@@ -8,7 +8,7 @@ import {
   computeStreak, weeklyData, weeklyScoreParts, gradeForScore, sparklineData,
   latestWeight, idealWeightRange, computeTargetsFromProfile, weightBarData, weightJourney, computeWeightForecast,
 } from './src/calculations.js';
-import { comparableQuantity, calculateFood, findFoodByPhotoHash, searchFoods, scaleFoodDbItem } from './src/food-lookup.js';
+import { comparableQuantity, calculateFood, findFoodByPhotoHash, searchFoods, scaleFoodDbItem, parseNutritionFromText } from './src/food-lookup.js';
 import { computeImageHash, isSimilarPhoto } from './src/image-hash.js';
 import { checkPaceAlerts, notificationsSupported, requestNotificationPermission, fireNotification } from './src/alerts.js';
 import { isBarcodeScanSupported, scanBarcodeFromCamera, lookupBarcode } from './src/barcode.js';
@@ -488,6 +488,36 @@ $('manualNutrition').addEventListener('click', () => {
   ui.form.manualMode = true;
   setNutrientEditing(true);
   $('lookupStatus').textContent = 'Enter known nutrition values manually. Leave unknown values blank; blanks are not included in totals.';
+});
+
+// Read a nutrition table off a screenshot (label, or an AI food breakdown).
+$('nutritionShotInput').addEventListener('change', async event => {
+  const file = event.target.files[0];
+  event.target.value = '';
+  if (!file) return;
+  $('lookupStatus').textContent = 'Reading the screenshot… the first time downloads the reader, which can take a minute.';
+  const url = URL.createObjectURL(file);
+  try {
+    const text = await recognizeTextInImage(url, percent => {
+      $('lookupStatus').textContent = `Reading the screenshot… ${percent}%`;
+    });
+    const parsed = parseNutritionFromText(text);
+    const found = NUTRIENTS.filter(n => parsed.values[n] !== null);
+    if (!found.length) {
+      $('lookupStatus').textContent = 'Couldn’t read nutrition numbers from this image. Try a clearer screenshot, or use Enter manually.';
+      return;
+    }
+    setFoodValues(parsed.values);
+    if (parsed.servingG) { $('foodQuantity').value = parsed.servingG; $('foodUnit').value = 'g'; }
+    ui.form.manualMode = true;
+    setNutrientEditing(true);
+    if (!$('foodName').value.trim()) $('foodName').focus();
+    $('lookupStatus').textContent = `Read ${found.length} value(s) from the screenshot${parsed.servingG ? ` for ${parsed.servingG}g` : ''}. Add a food name, check the numbers, then Add to today.`;
+  } catch (error) {
+    $('lookupStatus').textContent = error.message || 'Could not read this image.';
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 });
 
 $('cancelEdit').addEventListener('click', resetFoodForm);

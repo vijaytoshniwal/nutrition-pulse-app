@@ -1,4 +1,4 @@
-const cacheName = 'nutrition-pulse-v2-15';
+const cacheName = 'nutrition-pulse-v2-16';
 const assets = [
   './',
   './index.html',
