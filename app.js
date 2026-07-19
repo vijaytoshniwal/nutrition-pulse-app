@@ -12,7 +12,7 @@ import { comparableQuantity, calculateFood, findFoodByPhotoHash } from './src/fo
 import { computeImageHash, isSimilarPhoto } from './src/image-hash.js';
 import { checkPaceAlerts, notificationsSupported, requestNotificationPermission, fireNotification } from './src/alerts.js';
 import { isBarcodeScanSupported, scanBarcodeFromCamera, lookupBarcode } from './src/barcode.js';
-import { watchAuthState, signIn, signUp, signOutUser, resetPassword, loadCloudState, saveCloudState, saveFoodBankEntry, fetchActivitySync, FIREBASE_WEB_API_KEY, FIREBASE_PROJECT_ID } from './src/firebase-sync.js';
+import { watchAuthState, signIn, signUp, signOutUser, resetPassword, loadCloudState, saveCloudState, saveFoodBankEntry, fetchActivitySync, FIREBASE_PROJECT_ID } from './src/firebase-sync.js';
 import { recognizeTextInImage, parseActivityFromText } from './src/activity-ocr.js';
 
 /** Mobile browsers report 100vh as if the address bar were hidden, so measure the
@@ -722,7 +722,7 @@ function renderWeight(derived) {
 
 async function applyActivitySync({ silent } = {}) {
   if (!currentUser) return;
-  const sync = await fetchActivitySync(currentUser.uid);
+  const sync = await fetchActivitySync(state.healthSyncToken);
   if (!sync || sync.date !== state.currentDate) {
     if (!silent) {
       $('syncMessage').textContent = 'No synced data for today yet. Set it up once in Profile → Apple Watch / Health sync, or add from a screenshot below.';
@@ -1210,24 +1210,33 @@ function renderProfile() {
 
 function renderWatchSyncInstructions() {
   const container = $('watchSyncInstructions');
-  if (!currentUser) { container.textContent = ''; return; }
-  const signInUrl = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_WEB_API_KEY}`;
-  const docUrl = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/users/${currentUser.uid}/private/activitySync`;
+  if (!currentUser || !state.healthSyncToken) { container.textContent = ''; return; }
+  const docUrl = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/activityInbox/${state.healthSyncToken}`;
+  const bodyTemplate = '{"fields":{"date":{"stringValue":"DayKey"},"steps":{"doubleValue":StepsToday},"burnKcal":{"doubleValue":BurnToday},"exMin":{"doubleValue":ExerciseToday}}}';
   container.innerHTML = `
-    <p><strong>One-time setup on your iPhone (about 10 minutes).</strong> Open the <em>Shortcuts</em> app → + to create a new shortcut, then add these actions in order:</p>
+    <p><strong>One-time setup on your iPhone (about 5 minutes).</strong> Apple doesn't allow websites to create Shortcuts for you, but every long value below has a Copy button — open this page on the iPhone itself so you can paste directly. In the <em>Shortcuts</em> app tap + for a new shortcut, then add these actions in order:</p>
     <ol style="padding-left:18px;display:flex;flex-direction:column;gap:8px;margin:10px 0">
-      <li><strong>Find Health Samples</strong> — type <em>Steps</em>, where Date is Today, Group by Day, Calculate <em>Sum</em>. Rename the result variable to <em>StepsToday</em> (tap the action's result → Rename).</li>
+      <li><strong>Find Health Samples</strong> — type <em>Steps</em>, where Date is Today, Calculate <em>Sum</em>. Tap the result variable → Rename → <em>StepsToday</em>.</li>
       <li><strong>Find Health Samples</strong> — type <em>Active Energy</em>, Today, Sum → rename <em>BurnToday</em>.</li>
       <li><strong>Find Health Samples</strong> — type <em>Exercise Minutes</em>, Today, Sum → rename <em>ExerciseToday</em>.</li>
-      <li><strong>Get Contents of URL</strong> — URL:<br><code style="word-break:break-all">${signInUrl}</code><br>Method <em>POST</em>, Request Body <em>JSON</em>, with fields:<br>email = <em>your app email</em> (${currentUser.email})<br>password = <em>your app password</em><br>returnSecureToken = true (Boolean)</li>
-      <li><strong>Get Dictionary Value</strong> — key <em>idToken</em> from the previous result. Rename it <em>Token</em>.</li>
-      <li><strong>Current Date</strong>, then <strong>Format Date</strong> — custom format <code>yyyy-MM-dd</code>. Rename <em>DayKey</em>.</li>
-      <li><strong>Text</strong> — paste exactly, then replace each placeholder by tapping and inserting the matching variable:<br><code style="word-break:break-all">{"fields":{"date":{"stringValue":"DayKey"},"steps":{"integerValue":"StepsToday"},"burnKcal":{"integerValue":"BurnToday"},"exMin":{"integerValue":"ExerciseToday"}}}</code></li>
-      <li><strong>Get Contents of URL</strong> — URL:<br><code style="word-break:break-all">${docUrl}</code><br>Method <em>PATCH</em>; Headers: <em>Authorization</em> = <code>Bearer Token</code> (insert the Token variable after the word Bearer and a space), <em>Content-Type</em> = <code>application/json</code>; Request Body <em>File</em> → choose the Text from step 7.</li>
+      <li><strong>Format Date</strong> — Date: Current Date, Format <em>Custom</em>: <code>yyyy-MM-dd</code> <button type="button" class="chip-button" data-copy="yyyy-MM-dd">Copy</button>. Rename the result <em>DayKey</em>.</li>
+      <li><strong>Text</strong> — paste this <button type="button" class="chip-button" data-copy='${bodyTemplate}'>Copy</button>, then tap each placeholder word (DayKey, StepsToday, BurnToday, ExerciseToday) and replace it with the matching variable from the earlier steps:<br><code style="word-break:break-all">${bodyTemplate}</code></li>
+      <li><strong>Get Contents of URL</strong> — paste this URL <button type="button" class="chip-button" data-copy="${docUrl}">Copy</button>:<br><code style="word-break:break-all">${docUrl}</code><br>Method <em>PATCH</em> · Header: <em>Content-Type</em> = <code>application/json</code> · Request Body <em>File</em> → pick the Text from step 5.</li>
     </ol>
-    <p>Run it once to test — then in Shortcuts → <em>Automation</em> → + → <em>Time of Day</em> (e.g. 9:00 PM, Daily, "Run Immediately") pick this shortcut. Your steps, burn and exercise minutes will land in the app every evening; tap <em>Sync now</em> on the Activity tab any time to pull them in.</p>
-    <p>Your password stays inside your own Shortcut on your own phone — the app never sees or stores it.</p>`;
+    <p>Run it once — you should see today's numbers appear after tapping <em>Sync now</em> on the Activity tab. Then in Shortcuts → <em>Automation</em> → + → <em>Time of Day</em> (e.g. 9:00 PM, Daily, <em>Run Immediately</em>) choose this shortcut, and your activity arrives every evening on its own.</p>
+    <p>No password goes into the Shortcut — the web address above contains a private code unique to your account. Don't share it.</p>`;
 }
+
+$('watchSyncInstructions').addEventListener('click', async event => {
+  const button = event.target.closest('[data-copy]');
+  if (!button) return;
+  try {
+    await navigator.clipboard.writeText(button.dataset.copy);
+    const original = button.textContent;
+    button.textContent = 'Copied!';
+    setTimeout(() => { button.textContent = original; }, 1500);
+  } catch { /* clipboard unavailable — user can select the text manually */ }
+});
 
 // ---------- Derived data + full render ----------
 
@@ -1333,6 +1342,10 @@ watchAuthState(async user => {
     } else {
       const cached = localStorage.getItem(userCacheKey(user.uid));
       if (cached) state = normalizeState(JSON.parse(cached));
+    }
+    if (!state.healthSyncToken) {
+      state.healthSyncToken = Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b => b.toString(16).padStart(2, '0')).join('');
+      saveCloudState(user.uid, state);
     }
     saveLocalState(state, user.uid);
   } catch {
