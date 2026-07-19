@@ -27,6 +27,7 @@ export function freshState() {
     lastAlertDate: {},
     healthSyncToken: '',
     vegOnly: false,
+    onboarded: false,
   };
 }
 
@@ -48,6 +49,12 @@ export function normalizeState(data) {
   state.currentDate = state.currentDate || dayKey();
   // Follow the device's light/dark setting unless the user explicitly picked a theme.
   if (!state.themeChosen) state.theme = 'auto';
+  // Anyone who already has data is treated as onboarded, so only genuinely new
+  // accounts get sent to the Profile tab to set themselves up first.
+  if (!state.onboarded) {
+    state.onboarded = state.weights.length > 0 || state.history.length > 0
+      || state.foods.length > 0 || !!state.profile.heightCm || !!state.displayName;
+  }
   return state;
 }
 
