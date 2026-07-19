@@ -26,6 +26,7 @@ export function freshState() {
     alertsEnabled: false,
     lastAlertDate: {},
     healthSyncToken: '',
+    vegOnly: false,
   };
 }
 
