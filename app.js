@@ -86,14 +86,17 @@ function renderAuthScreen() {
 
 const REMEMBER_EMAIL_KEY = 'nutrition-pulse-remembered-email';
 
+// The remember-me checkbox is optional UI; guard every access so a missing
+// element can never throw and block sign-in (e.g. after a partial update).
 const rememberedEmail = localStorage.getItem(REMEMBER_EMAIL_KEY);
 if (rememberedEmail) {
   $('authEmail').value = rememberedEmail;
-  $('rememberMe').checked = true;
+  if ($('rememberMe')) $('rememberMe').checked = true;
 }
 
 function applyRememberMe(email) {
-  if ($('rememberMe').checked) localStorage.setItem(REMEMBER_EMAIL_KEY, email);
+  const remember = $('rememberMe');
+  if (!remember || remember.checked) localStorage.setItem(REMEMBER_EMAIL_KEY, email);
   else localStorage.removeItem(REMEMBER_EMAIL_KEY);
 }
 
