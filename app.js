@@ -1478,5 +1478,15 @@ watchAuthState(async user => {
 
 $('appVersion').textContent = `Version ${APP_VERSION}`;
 renderAuthScreen();
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js');
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js');
+  // When a new service worker takes control (a new version was deployed),
+  // reload once so the fresh code is used instead of the old cached version.
+  let reloadingForUpdate = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloadingForUpdate) return;
+    reloadingForUpdate = true;
+    location.reload();
+  });
+}
 scheduleMidnightCheck();

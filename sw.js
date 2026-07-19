@@ -1,4 +1,4 @@
-const cacheName = 'nutrition-pulse-v2-16';
+const cacheName = 'nutrition-pulse-v2-17';
 const assets = [
   './',
   './index.html',
@@ -20,6 +20,9 @@ const assets = [
 ];
 
 self.addEventListener('install', event => {
+  // Activate the new version immediately instead of waiting for every tab to
+  // close — otherwise phones keep serving the previous cached version.
+  self.skipWaiting();
   event.waitUntil(caches.open(cacheName).then(cache => cache.addAll(assets)));
 });
 
