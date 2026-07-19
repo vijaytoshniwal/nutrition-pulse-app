@@ -63,3 +63,22 @@ export async function saveCloudState(uid, state) {
     console.warn('Cloud save failed', error);
   }
 }
+
+/**
+ * Shared food bank: one collection all signed-in users read and contribute to,
+ * so a food any user has entered resolves instantly for everyone else.
+ * Requires a Firestore rule allowing authenticated read/write on /foodBank.
+ */
+export async function fetchFoodBankEntry(key) {
+  try {
+    const snapshot = await getDoc(doc(db, 'foodBank', key));
+    return snapshot.exists() ? snapshot.data() : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveFoodBankEntry(key, entry) {
+  if (!auth.currentUser) return;
+  setDoc(doc(db, 'foodBank', key), { ...entry, updatedAt: serverTimestamp() }).catch(() => {});
+}
