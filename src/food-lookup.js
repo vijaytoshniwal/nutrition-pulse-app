@@ -4,6 +4,48 @@ import { hashDistance, isSimilarPhoto } from './image-hash.js';
 import { fetchFoodBankEntry } from './firebase-sync.js';
 import { FOOD_DB } from './food-db.js';
 
+/**
+ * Reads a nutrition table out of OCR text (e.g. a screenshot of a nutrition
+ * label or an AI food breakdown). Handles ranges like "35–40 kcal" (averaged)
+ * and detects the serving weight if the text states one. Returns
+ * { values: {calories, protein, carbs, fat, fibre, sugar}, servingG }.
+ */
+export function parseNutritionFromText(text) {
+  const t = text.replace(/\s+/g, ' ');
+  const lower = t.toLowerCase();
+
+  // A number, or a range "a-b"/"a–b" which we average. The keyword is grouped
+  // so alternations bind correctly and the number always follows the keyword.
+  const grab = keywordPattern => {
+    const re = new RegExp(`(?:${keywordPattern})[^0-9\\n]{0,18}(\\d+(?:\\.\\d+)?)(?:\\s*[–—-]\\s*(\\d+(?:\\.\\d+)?))?`, 'i');
+    const m = lower.match(re);
+    if (!m || m[1] === undefined) return null;
+    const a = parseFloat(m[1]);
+    if (m[2] !== undefined) return Math.round(((a + parseFloat(m[2])) / 2) * 10) / 10;
+    return a;
+  };
+
+  const values = {
+    calories: grab('calor|energy'),
+    protein: grab('protein'),
+    carbs: grab('carbo|carbs'),
+    fat: grab('(?<!saturated )(?<!trans )fat'),
+    fibre: grab('fib(?:re|er)'),
+    sugar: grab('sugar'),
+  };
+
+  // Serving weight: "(50 g)", "(about 50 g)", "per 100 g", "serving 30 g".
+  let servingG = null;
+  const paren = t.match(/\(?\s*(?:about\s*)?(\d+(?:\.\d+)?)\s*(?:g|gram|grams|ml)\s*\)/i);
+  const per = lower.match(/per\s*(\d+(?:\.\d+)?)\s*(?:g|gram|grams|ml)/i);
+  const serv = lower.match(/serving[^0-9]{0,15}(\d+(?:\.\d+)?)\s*(?:g|gram|grams|ml)/i);
+  if (per) servingG = parseFloat(per[1]);
+  else if (serv) servingG = parseFloat(serv[1]);
+  else if (paren) servingG = parseFloat(paren[1]);
+
+  return { values, servingG };
+}
+
 /** Exact-name (or whole-word alias) match in the built-in database. */
 export function findInFoodDb(key) {
   return FOOD_DB.find(item =>
