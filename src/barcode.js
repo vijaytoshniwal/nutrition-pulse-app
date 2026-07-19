@@ -1,17 +1,49 @@
+/**
+ * Barcode scanning with two engines: the browser's native BarcodeDetector
+ * where it exists (Chrome/Android — fast, nothing to download), and a
+ * lazily-loaded html5-qrcode (ZXing-based) fallback everywhere else,
+ * including iOS Safari which has no BarcodeDetector at all.
+ */
+
+let scannerLibLoading = null;
+
+function loadScannerLibrary() {
+  if (window.Html5Qrcode) return Promise.resolve();
+  if (scannerLibLoading) return scannerLibLoading;
+  scannerLibLoading = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js';
+    script.onload = resolve;
+    script.onerror = () => reject(new Error('Could not load the barcode scanner. Check your connection.'));
+    document.head.appendChild(script);
+  });
+  return scannerLibLoading;
+}
+
+/** Scanning works anywhere a camera is reachable — the engine is chosen at scan time. */
 export function isBarcodeScanSupported() {
-  return 'BarcodeDetector' in window;
+  return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
 }
 
 /**
- * Opens the back camera into the given <video> element and resolves with the
- * first recognized barcode's raw value. Call the returned `stop()` to cancel
- * (e.g. the user closing the scanner) without waiting for a detection.
+ * Opens the back camera and resolves with the first recognized barcode's
+ * value. `videoElement` is used by the native engine; `fallbackContainer`
+ * (a div) hosts the fallback engine's own camera view. Call the returned
+ * `stop()` to cancel — the promise then rejects with message 'cancelled'.
  */
-export function scanBarcodeFromCamera(videoElement) {
+export function scanBarcodeFromCamera(videoElement, fallbackContainer, onStatus) {
+  if ('BarcodeDetector' in window) return scanWithNativeDetector(videoElement, fallbackContainer, onStatus);
+  return scanWithLibrary(videoElement, fallbackContainer, onStatus);
+}
+
+function scanWithNativeDetector(videoElement, fallbackContainer, onStatus) {
   let stopped = false;
   let stream = null;
 
   const promise = (async () => {
+    fallbackContainer.hidden = true;
+    videoElement.hidden = false;
+    if (onStatus) onStatus('Point the camera at a barcode…');
     const detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e'] });
     stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
     videoElement.srcObject = stream;
@@ -36,6 +68,57 @@ export function scanBarcodeFromCamera(videoElement) {
   const stop = () => {
     stopped = true;
     if (stream) stream.getTracks().forEach(track => track.stop());
+  };
+
+  return { promise, stop };
+}
+
+function scanWithLibrary(videoElement, fallbackContainer, onStatus) {
+  let stopped = false;
+  let scanner = null;
+  let rejectActive = null;
+
+  const promise = (async () => {
+    if (onStatus) onStatus('Loading the scanner… the first time can take a few seconds.');
+    await loadScannerLibrary();
+    if (stopped) throw new Error('cancelled');
+
+    videoElement.hidden = true;
+    fallbackContainer.hidden = false;
+    const F = window.Html5QrcodeSupportedFormats;
+    scanner = new window.Html5Qrcode(fallbackContainer.id, {
+      formatsToSupport: [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E],
+      verbose: false,
+    });
+    if (onStatus) onStatus('Point the camera at a barcode…');
+
+    return new Promise((resolve, reject) => {
+      rejectActive = reject;
+      scanner.start(
+        { facingMode: 'environment' },
+        { fps: 10 },
+        decodedText => resolve(decodedText),
+        () => { /* per-frame misses are normal — keep scanning */ }
+      ).catch(reject);
+    });
+  })();
+
+  const stop = () => {
+    stopped = true;
+    if (rejectActive) rejectActive(new Error('cancelled'));
+    if (scanner) {
+      // html5-qrcode throws synchronously if the camera never finished
+      // starting (e.g. cancel while the permission prompt is open) — cleanup
+      // must never propagate an exception into the caller's UI handling.
+      try {
+        const stopping = scanner.stop();
+        if (stopping && stopping.then) stopping.then(() => scanner.clear()).catch(() => {});
+      } catch {
+        try { scanner.clear(); } catch { /* nothing to clear */ }
+      }
+    }
+    fallbackContainer.hidden = true;
+    videoElement.hidden = false;
   };
 
   return { promise, stop };
