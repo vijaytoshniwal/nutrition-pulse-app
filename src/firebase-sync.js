@@ -82,3 +82,20 @@ export function saveFoodBankEntry(key, entry) {
   if (!auth.currentUser) return;
   setDoc(doc(db, 'foodBank', key), { ...entry, updatedAt: serverTimestamp() }).catch(() => {});
 }
+
+/**
+ * Activity synced from outside the app (an iPhone Shortcut writes this doc
+ * directly via the Firestore REST API using the user's own sign-in, so no
+ * server is involved). Shape: { date: 'YYYY-MM-DD', steps, burnKcal, exMin }.
+ */
+export async function fetchActivitySync(uid) {
+  try {
+    const snapshot = await getDoc(doc(db, 'users', uid, 'private', 'activitySync'));
+    return snapshot.exists() ? snapshot.data() : null;
+  } catch {
+    return null;
+  }
+}
+
+export const FIREBASE_WEB_API_KEY = firebaseConfig.apiKey;
+export const FIREBASE_PROJECT_ID = firebaseConfig.projectId;
