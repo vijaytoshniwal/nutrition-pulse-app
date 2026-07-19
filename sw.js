@@ -1,4 +1,4 @@
-const cacheName = 'nutrition-pulse-v2-11';
+const cacheName = 'nutrition-pulse-v2-12';
 const assets = [
   './',
   './index.html',
@@ -15,6 +15,7 @@ const assets = [
   './src/image-hash.js',
   './src/alerts.js',
   './src/barcode.js',
+  './src/activity-ocr.js',
 ];
 
 self.addEventListener('install', event => {

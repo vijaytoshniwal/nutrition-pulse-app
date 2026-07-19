@@ -12,7 +12,8 @@ import { comparableQuantity, calculateFood, findFoodByPhotoHash } from './src/fo
 import { computeImageHash, isSimilarPhoto } from './src/image-hash.js';
 import { checkPaceAlerts, notificationsSupported, requestNotificationPermission, fireNotification } from './src/alerts.js';
 import { isBarcodeScanSupported, scanBarcodeFromCamera, lookupBarcode } from './src/barcode.js';
-import { watchAuthState, signIn, signUp, signOutUser, resetPassword, loadCloudState, saveCloudState, saveFoodBankEntry } from './src/firebase-sync.js';
+import { watchAuthState, signIn, signUp, signOutUser, resetPassword, loadCloudState, saveCloudState, saveFoodBankEntry, fetchActivitySync, FIREBASE_WEB_API_KEY, FIREBASE_PROJECT_ID } from './src/firebase-sync.js';
+import { recognizeTextInImage, parseActivityFromText } from './src/activity-ocr.js';
 
 /** Mobile browsers report 100vh as if the address bar were hidden, so measure the
  * real visible height in JS instead of trusting CSS vh units alone. */
@@ -719,12 +720,77 @@ function renderWeight(derived) {
 
 // ---------- Activity tab ----------
 
-$('syncDevice').addEventListener('click', () => {
-  $('syncMessage').textContent = 'Looking for your phone or watch…';
-  setTimeout(() => {
-    $('syncMessage').textContent = 'No connected health service on this device yet — enter today’s numbers manually below, they save instantly.';
+async function applyActivitySync({ silent } = {}) {
+  if (!currentUser) return;
+  const sync = await fetchActivitySync(currentUser.uid);
+  if (!sync || sync.date !== state.currentDate) {
+    if (!silent) {
+      $('syncMessage').textContent = 'No synced data for today yet. Set it up once in Profile → Apple Watch / Health sync, or add from a screenshot below.';
+      setTimeout(() => { $('syncMessage').textContent = ''; }, 7000);
+    }
+    return;
+  }
+  // Take the higher of synced vs manual per field so a manual top-up is never lost.
+  const merged = {
+    steps: Math.max(num(state.activityToday.steps), num(sync.steps)),
+    burnKcal: Math.max(num(state.activityToday.burnKcal), num(sync.burnKcal)),
+    exMin: Math.max(num(state.activityToday.exMin), num(sync.exMin)),
+  };
+  const changed = merged.steps !== num(state.activityToday.steps)
+    || merged.burnKcal !== num(state.activityToday.burnKcal)
+    || merged.exMin !== num(state.activityToday.exMin);
+  state.activityToday = merged;
+  if (!silent) {
+    $('syncMessage').textContent = changed ? 'Synced from your phone’s health data.' : 'Already up to date with your phone’s health data.';
     setTimeout(() => { $('syncMessage').textContent = ''; }, 5000);
-  }, 1000);
+  }
+  if (changed) save();
+}
+
+$('syncDevice').addEventListener('click', () => {
+  $('syncMessage').textContent = 'Checking for synced health data…';
+  applyActivitySync();
+});
+
+// ---------- Activity from a screenshot ----------
+
+$('activityPhotoInput').addEventListener('change', async event => {
+  const file = event.target.files[0];
+  event.target.value = '';
+  if (!file) return;
+  $('activityPhotoResult').hidden = true;
+  $('activityPhotoStatus').textContent = 'Reading the screenshot… the first time downloads the reader, which can take a minute.';
+  const url = URL.createObjectURL(file);
+  try {
+    const text = await recognizeTextInImage(url, percent => {
+      $('activityPhotoStatus').textContent = `Reading the screenshot… ${percent}%`;
+    });
+    const parsed = parseActivityFromText(text);
+    $('ocrSteps').value = parsed.steps === null ? '' : parsed.steps;
+    $('ocrBurn').value = parsed.burnKcal === null ? '' : parsed.burnKcal;
+    $('ocrExMin').value = parsed.exMin === null ? '' : parsed.exMin;
+    $('activityPhotoResult').hidden = false;
+    const foundAny = parsed.steps !== null || parsed.burnKcal !== null || parsed.exMin !== null;
+    $('activityPhotoStatus').textContent = foundAny
+      ? 'Check the numbers read from the screenshot, correct anything, then tap Apply.'
+      : 'Couldn’t confidently read numbers from this image — type them below and tap Apply.';
+  } catch (error) {
+    $('activityPhotoStatus').textContent = error.message || 'Could not read this image.';
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+});
+
+$('applyOcr').addEventListener('click', () => {
+  state.activityToday = {
+    steps: Math.max(num(state.activityToday.steps), num($('ocrSteps').value)),
+    burnKcal: Math.max(num(state.activityToday.burnKcal), num($('ocrBurn').value)),
+    exMin: Math.max(num(state.activityToday.exMin), num($('ocrExMin').value)),
+  };
+  $('activityPhotoResult').hidden = true;
+  $('activityPhotoStatus').textContent = 'Applied to today.';
+  setTimeout(() => { $('activityPhotoStatus').textContent = ''; }, 3000);
+  save();
 });
 
 function bumpActivity(key, amount) {
@@ -1139,6 +1205,28 @@ function renderProfile() {
   $('alertsToggle').classList.toggle('on', !!state.alertsEnabled);
   $('themeModeNote').textContent = state.theme === 'auto' ? 'Following your device setting.' : `Fixed to ${state.theme} mode.`;
   $('themeAuto').hidden = state.theme === 'auto';
+  renderWatchSyncInstructions();
+}
+
+function renderWatchSyncInstructions() {
+  const container = $('watchSyncInstructions');
+  if (!currentUser) { container.textContent = ''; return; }
+  const signInUrl = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_WEB_API_KEY}`;
+  const docUrl = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/users/${currentUser.uid}/private/activitySync`;
+  container.innerHTML = `
+    <p><strong>One-time setup on your iPhone (about 10 minutes).</strong> Open the <em>Shortcuts</em> app → + to create a new shortcut, then add these actions in order:</p>
+    <ol style="padding-left:18px;display:flex;flex-direction:column;gap:8px;margin:10px 0">
+      <li><strong>Find Health Samples</strong> — type <em>Steps</em>, where Date is Today, Group by Day, Calculate <em>Sum</em>. Rename the result variable to <em>StepsToday</em> (tap the action's result → Rename).</li>
+      <li><strong>Find Health Samples</strong> — type <em>Active Energy</em>, Today, Sum → rename <em>BurnToday</em>.</li>
+      <li><strong>Find Health Samples</strong> — type <em>Exercise Minutes</em>, Today, Sum → rename <em>ExerciseToday</em>.</li>
+      <li><strong>Get Contents of URL</strong> — URL:<br><code style="word-break:break-all">${signInUrl}</code><br>Method <em>POST</em>, Request Body <em>JSON</em>, with fields:<br>email = <em>your app email</em> (${currentUser.email})<br>password = <em>your app password</em><br>returnSecureToken = true (Boolean)</li>
+      <li><strong>Get Dictionary Value</strong> — key <em>idToken</em> from the previous result. Rename it <em>Token</em>.</li>
+      <li><strong>Current Date</strong>, then <strong>Format Date</strong> — custom format <code>yyyy-MM-dd</code>. Rename <em>DayKey</em>.</li>
+      <li><strong>Text</strong> — paste exactly, then replace each placeholder by tapping and inserting the matching variable:<br><code style="word-break:break-all">{"fields":{"date":{"stringValue":"DayKey"},"steps":{"integerValue":"StepsToday"},"burnKcal":{"integerValue":"BurnToday"},"exMin":{"integerValue":"ExerciseToday"}}}</code></li>
+      <li><strong>Get Contents of URL</strong> — URL:<br><code style="word-break:break-all">${docUrl}</code><br>Method <em>PATCH</em>; Headers: <em>Authorization</em> = <code>Bearer Token</code> (insert the Token variable after the word Bearer and a space), <em>Content-Type</em> = <code>application/json</code>; Request Body <em>File</em> → choose the Text from step 7.</li>
+    </ol>
+    <p>Run it once to test — then in Shortcuts → <em>Automation</em> → + → <em>Time of Day</em> (e.g. 9:00 PM, Daily, "Run Immediately") pick this shortcut. Your steps, burn and exercise minutes will land in the app every evening; tap <em>Sync now</em> on the Activity tab any time to pull them in.</p>
+    <p>Your password stays inside your own Shortcut on your own phone — the app never sees or stores it.</p>`;
 }
 
 // ---------- Derived data + full render ----------
@@ -1215,7 +1303,12 @@ function scheduleMidnightCheck() {
   setTimeout(() => { if (currentUser) render(); scheduleMidnightCheck(); }, midnight - now + 1000);
 }
 
-document.addEventListener('visibilitychange', () => { if (!document.hidden && currentUser) render(); });
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && currentUser) {
+    render();
+    applyActivitySync({ silent: true });
+  }
+});
 
 // Pace alerts depend on the time of day, so re-check periodically while the app stays open.
 setInterval(() => {
@@ -1248,6 +1341,7 @@ watchAuthState(async user => {
   }
   showTab('today');
   render();
+  applyActivitySync({ silent: true });
 });
 
 renderAuthScreen();

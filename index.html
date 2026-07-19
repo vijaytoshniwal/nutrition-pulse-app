@@ -267,10 +267,27 @@
 
         <section id="tabActivity" class="tab-panel" data-tab="activity" hidden>
           <div class="card">
-            <div class="section-head"><h2>Today's activity</h2><button id="syncDevice" class="chip-button" type="button">Check for connected device</button></div>
+            <div class="section-head"><h2>Today's activity</h2><button id="syncDevice" class="chip-button" type="button">Sync now</button></div>
             <p id="syncMessage" class="form-message"></p>
             <div id="activityRows" class="score-rows"></div>
             <div id="activityBumps" class="field-row"></div>
+          </div>
+
+          <div class="card">
+            <h2>Add from a screenshot</h2>
+            <p class="muted small">Take a screenshot of any fitness app (Apple Fitness, Gabit, Whoop, Ultrahuman…) and the numbers are read off the image for you to confirm.</p>
+            <label class="chip-button as-label">Pick screenshot<input id="activityPhotoInput" type="file" accept="image/*" hidden></label>
+            <p id="activityPhotoStatus" class="form-message"></p>
+            <div id="activityPhotoResult" hidden>
+              <div class="nutrient-grid three">
+                <label>Steps<input id="ocrSteps" type="number" min="0"></label>
+                <label>Burn (kcal)<input id="ocrBurn" type="number" min="0"></label>
+                <label>Exercise (min)<input id="ocrExMin" type="number" min="0"></label>
+              </div>
+              <div class="field-row" style="margin-top:10px">
+                <button id="applyOcr" type="button" class="btn-primary flex1">Apply to today</button>
+              </div>
+            </div>
           </div>
 
           <div class="card">
@@ -390,6 +407,15 @@
             <div class="nutrient-grid" id="targetFields"></div>
             <button id="saveTargets" type="submit" class="btn-primary">Save targets</button>
           </form>
+
+          <div class="card">
+            <h2>Apple Watch / Health sync</h2>
+            <p class="muted small">Your iPhone can send steps, active calories and exercise minutes here automatically each day using the built-in Shortcuts app — no extra services needed. Works with anything that writes into Apple Health (Watch, Gabit, Ultrahuman and more).</p>
+            <details id="watchSyncDetails">
+              <summary class="chip-button as-label">Show setup steps</summary>
+              <div id="watchSyncInstructions" class="muted small" style="margin-top:10px"></div>
+            </details>
+          </div>
 
           <div class="card">
             <h2>Backup</h2>
