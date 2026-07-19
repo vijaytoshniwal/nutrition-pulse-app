@@ -25,6 +25,7 @@ export function freshState() {
     mealPresets: [],
     alertsEnabled: false,
     lastAlertDate: {},
+    healthSyncToken: '',
   };
 }
 
