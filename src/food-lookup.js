@@ -2,6 +2,46 @@ import { NUTRIENTS, FALLBACK_FOODS, PIECE_WEIGHTS } from './constants.js';
 import { num, foodKey } from './utils.js';
 import { hashDistance, isSimilarPhoto } from './image-hash.js';
 import { fetchFoodBankEntry } from './firebase-sync.js';
+import { FOOD_DB } from './food-db.js';
+
+/** Exact-name (or whole-word alias) match in the built-in database. */
+export function findInFoodDb(key) {
+  return FOOD_DB.find(item =>
+    item.n.toLowerCase() === key ||
+    (item.a && (` ${item.a.toLowerCase()} `).includes(` ${key} `))
+  ) || null;
+}
+
+/** Scales a compact FOOD_DB row (per-100g short keys) to full nutrient values. */
+export function scaleFoodDbItem(item, factor) {
+  return {
+    calories: Number((item.k * factor).toFixed(1)),
+    protein: Number((item.p * factor).toFixed(1)),
+    carbs: Number((item.cb * factor).toFixed(1)),
+    fat: Number((item.f * factor).toFixed(1)),
+    fibre: Number((item.fb * factor).toFixed(1)),
+    sugar: Number((item.s * factor).toFixed(1)),
+  };
+}
+
+/** Search-as-you-type over the built-in database, optionally vegetarian-only. */
+export function searchFoods(query, vegOnly = false, limit = 8) {
+  const q = query.trim().toLowerCase();
+  if (q.length < 2) return [];
+  const scored = [];
+  for (const item of FOOD_DB) {
+    if (vegOnly && item.v !== 1) continue;
+    const name = item.n.toLowerCase();
+    const aliases = (item.a || '').toLowerCase();
+    let score = 0;
+    if (name.startsWith(q)) score = 3;
+    else if (name.includes(q)) score = 2;
+    else if (aliases.includes(q)) score = 1;
+    if (score) scored.push({ item, score });
+  }
+  scored.sort((a, b) => b.score - a.score || a.item.n.length - b.item.n.length);
+  return scored.slice(0, limit).map(entry => entry.item);
+}
 
 export function comparableQuantity(name, quantity, unit) {
   const key = foodKey(name);
@@ -71,6 +111,12 @@ export async function calculateFood(name, quantity, unit, customFoods) {
     const values = scaleNutrients(fallback, quantityGrams / 100);
     const note = unit === 'ml' ? ' (using 1 ml ≈ 1 g).' : unit === 'pieces' ? ` (using ~${PIECE_WEIGHTS[key]} g per piece).` : '';
     return { values, status: `Calculated from the basic food list${note}`, manualMode: false };
+  }
+
+  const dbItem = findInFoodDb(key);
+  if (dbItem) {
+    const values = scaleFoodDbItem(dbItem, quantityGrams / 100);
+    return { values, status: `Calculated from the Indian food database (${dbItem.n}).`, manualMode: false };
   }
 
   const shared = await fetchFoodBankEntry(key);
