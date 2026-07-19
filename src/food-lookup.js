@@ -1,6 +1,7 @@
 import { NUTRIENTS, FALLBACK_FOODS, PIECE_WEIGHTS } from './constants.js';
 import { num, foodKey } from './utils.js';
 import { hashDistance, isSimilarPhoto } from './image-hash.js';
+import { fetchFoodBankEntry } from './firebase-sync.js';
 
 export function comparableQuantity(name, quantity, unit) {
   const key = foodKey(name);
@@ -70,6 +71,13 @@ export async function calculateFood(name, quantity, unit, customFoods) {
     const values = scaleNutrients(fallback, quantityGrams / 100);
     const note = unit === 'ml' ? ' (using 1 ml ≈ 1 g).' : unit === 'pieces' ? ` (using ~${PIECE_WEIGHTS[key]} g per piece).` : '';
     return { values, status: `Calculated from the basic food list${note}`, manualMode: false };
+  }
+
+  const shared = await fetchFoodBankEntry(key);
+  if (shared && shared.baseQuantity > 0) {
+    const factor = quantityGrams / shared.baseQuantity;
+    const values = Object.fromEntries(NUTRIENTS.map(n => [n, shared[n] == null ? null : Number((num(shared[n]) * factor).toFixed(1))]));
+    return { values, status: `Calculated from the shared food bank (${shared.name}). Review the values, then save.`, manualMode: true };
   }
 
   try {
