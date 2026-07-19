@@ -85,16 +85,12 @@ export async function fetchFoodBankEntry(key) {
 }
 
 /**
- * A user-entered food goes to a moderation queue (foodBankPending) first, not
- * straight into the shared bank, so the admin can vet the numbers before they
- * become everyone's default. The admin's own submissions skip the queue.
+ * Every user-entered food — including the admin's own — goes to a moderation
+ * queue (foodBankPending) first, never straight into the shared bank, so
+ * every entry gets the same review before it becomes everyone's default.
  */
 export function submitFoodForReview(key, entry) {
   if (!auth.currentUser) return;
-  if (isAdmin()) {
-    setDoc(doc(db, 'foodBank', key), { ...entry, approvedBy: auth.currentUser.email, updatedAt: serverTimestamp() }).catch(() => {});
-    return;
-  }
   setDoc(doc(db, 'foodBankPending', key), {
     ...entry,
     submittedBy: auth.currentUser.email,
