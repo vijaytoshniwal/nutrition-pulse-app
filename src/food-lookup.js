@@ -14,15 +14,22 @@ export function parseNutritionFromText(text) {
   const t = text.replace(/\s+/g, ' ');
   const lower = t.toLowerCase();
 
-  // A number, or a range "a-b"/"a–b" which we average. The keyword is grouped
-  // so alternations bind correctly and the number always follows the keyword.
+  // A single number, or a tight range "a–b" which we average. OCR often drops
+  // the decimal point (reading "3.5" as "35"), which would turn "3–3.5" into a
+  // nonsense average of 19 — so if the upper bound is implausibly larger than
+  // the lower, recover the decimal (35→3.5) or fall back to the lower bound.
   const grab = keywordPattern => {
     const re = new RegExp(`(?:${keywordPattern})[^0-9\\n]{0,18}(\\d+(?:\\.\\d+)?)(?:\\s*[–—-]\\s*(\\d+(?:\\.\\d+)?))?`, 'i');
     const m = lower.match(re);
     if (!m || m[1] === undefined) return null;
     const a = parseFloat(m[1]);
-    if (m[2] !== undefined) return Math.round(((a + parseFloat(m[2])) / 2) * 10) / 10;
-    return a;
+    if (m[2] === undefined) return a;
+    let b = parseFloat(m[2]);
+    if (b > a * 2) {
+      const recovered = b / 10;
+      b = recovered >= a * 0.5 && recovered <= a * 2 ? recovered : a;
+    }
+    return Math.round(((a + b) / 2) * 10) / 10;
   };
 
   const values = {
