@@ -7,7 +7,13 @@ import {
   signOut,
   sendPasswordResetEmail,
 } from 'https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js';
-import { getFirestore, doc, getDoc, setDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js';
+import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs, serverTimestamp } from 'https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js';
+
+/** The account allowed to approve/reject community food submissions. */
+export const ADMIN_EMAIL = 'vijay_toshniwal1@rediffmail.com';
+export function isAdmin() {
+  return !!auth.currentUser && auth.currentUser.email === ADMIN_EMAIL;
+}
 
 const firebaseConfig = {
   apiKey: 'AIzaSyBx9hA1S2FU-oYkJDnQtivqjnTqJZyg6VA',
@@ -78,9 +84,44 @@ export async function fetchFoodBankEntry(key) {
   }
 }
 
-export function saveFoodBankEntry(key, entry) {
+/**
+ * A user-entered food goes to a moderation queue (foodBankPending) first, not
+ * straight into the shared bank, so the admin can vet the numbers before they
+ * become everyone's default. The admin's own submissions skip the queue.
+ */
+export function submitFoodForReview(key, entry) {
   if (!auth.currentUser) return;
-  setDoc(doc(db, 'foodBank', key), { ...entry, updatedAt: serverTimestamp() }).catch(() => {});
+  if (isAdmin()) {
+    setDoc(doc(db, 'foodBank', key), { ...entry, approvedBy: auth.currentUser.email, updatedAt: serverTimestamp() }).catch(() => {});
+    return;
+  }
+  setDoc(doc(db, 'foodBankPending', key), {
+    ...entry,
+    submittedBy: auth.currentUser.email,
+    submittedAt: serverTimestamp(),
+  }).catch(() => {});
+}
+
+export async function fetchPendingFoods() {
+  if (!isAdmin()) return [];
+  try {
+    const snapshot = await getDocs(collection(db, 'foodBankPending'));
+    return snapshot.docs.map(d => ({ key: d.id, ...d.data() }));
+  } catch {
+    return [];
+  }
+}
+
+export async function approvePendingFood(key, entry) {
+  if (!isAdmin()) return;
+  const { submittedBy, submittedAt, ...clean } = entry;
+  await setDoc(doc(db, 'foodBank', key), { ...clean, approvedBy: auth.currentUser.email, updatedAt: serverTimestamp() });
+  await deleteDoc(doc(db, 'foodBankPending', key));
+}
+
+export async function rejectPendingFood(key) {
+  if (!isAdmin()) return;
+  await deleteDoc(doc(db, 'foodBankPending', key));
 }
 
 /**
