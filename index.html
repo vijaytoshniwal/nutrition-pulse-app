@@ -335,9 +335,11 @@
               </select>
             </div>
             <div class="field-row">
-              <button id="addPresetItem" type="button" class="chip-button flex1">Add item</button>
-              <button id="presetManualToggle" type="button" class="chip-button flex1">Enter nutrition</button>
+              <button id="presetCalculate" type="button" class="chip-button flex1">Calculate</button>
+              <button id="presetManualToggle" type="button" class="chip-button flex1">Enter manually</button>
+              <label class="chip-button as-label flex1">Read from screenshot<input id="presetShotInput" type="file" accept="image/*" hidden></label>
             </div>
+            <p id="presetItemStatus" class="form-message"></p>
             <div id="presetNutrientGrid" class="nutrient-grid" hidden>
               <label>Calories<input id="presetCalories" type="number" min="0" step="1"></label>
               <label>Protein (g)<input id="presetProtein" type="number" min="0" step="0.1"></label>
@@ -346,7 +348,7 @@
               <label>Fibre (g)<input id="presetFibre" type="number" min="0" step="0.1"></label>
               <label>Sugar (g)<input id="presetSugar" type="number" min="0" step="0.1"></label>
             </div>
-            <p id="presetItemStatus" class="form-message"></p>
+            <button id="addPresetItem" type="button" class="chip-button" hidden>Add this item to the meal</button>
             <ul id="presetItemsList" class="entry-list"></ul>
             <p id="presetTotalsLabel" class="muted small"></p>
             <div class="field-row">

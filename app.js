@@ -43,6 +43,7 @@ const ui = {
   tab: 'today',
   form: freshForm(),
   presetDraft: [],
+  presetItemManual: false,
 };
 
 function freshForm() {
@@ -941,68 +942,119 @@ attachFoodSuggest('presetItemName', 'presetSuggestions', item => {
   $('presetItemName').value = item.n;
   $('presetItemQuantity').value = item.sg;
   $('presetItemUnit').value = 'g';
-  $('presetItemStatus').textContent = `${item.n} selected — tap Add item to include it.`;
+  setPresetGridValues(scaleFoodDbItem(item, item.sg / 100));
+  ui.presetItemManual = false;
+  showPresetGrid();
+  $('presetItemStatus').textContent = `${item.n} (${item.sl}) — review the nutrition and tap Add this item.`;
 });
 
 const PRESET_NUTRIENT_IDS = { calories: 'presetCalories', protein: 'presetProtein', carbs: 'presetCarbs', fat: 'presetFat', fibre: 'presetFibre', sugar: 'presetSugar' };
 
-function readPresetManualValues() {
-  if ($('presetNutrientGrid').hidden) return null;
-  const values = Object.fromEntries(Object.entries(PRESET_NUTRIENT_IDS).map(([key, id]) => [key, $(id).value === '' ? null : num($(id).value)]));
-  return values.calories === null && values.protein === null ? null : values;
+// ui.presetItemManual tracks whether the currently-shown values were typed by
+// hand (so they should be remembered app-wide) or came from a lookup.
+function readPresetGridValues() {
+  return Object.fromEntries(Object.entries(PRESET_NUTRIENT_IDS).map(([key, id]) => [key, $(id).value === '' ? null : num($(id).value)]));
 }
 
-function clearPresetManualGrid() {
-  Object.values(PRESET_NUTRIENT_IDS).forEach(id => { $(id).value = ''; });
-  $('presetNutrientGrid').hidden = true;
+function setPresetGridValues(values) {
+  Object.entries(PRESET_NUTRIENT_IDS).forEach(([key, id]) => {
+    const v = values[key];
+    $(id).value = v === null || v === undefined ? '' : Number(num(v).toFixed(1));
+  });
 }
 
-$('presetManualToggle').addEventListener('click', () => {
-  $('presetNutrientGrid').hidden = !$('presetNutrientGrid').hidden;
-  if (!$('presetNutrientGrid').hidden) {
-    $('presetItemStatus').textContent = 'Type the nutrition for this quantity of the food, then tap Add item.';
-  } else {
-    $('presetItemStatus').textContent = '';
-  }
-});
+/** Reveals the nutrition grid + "Add this item" button for the current food. */
+function showPresetGrid() {
+  $('presetNutrientGrid').hidden = false;
+  $('addPresetItem').hidden = false;
+}
 
-function addDraftItem(name, quantity, unit, values) {
-  const item = { name, quantity, unit, ...Object.fromEntries(NUTRIENTS.map(n => [n, num(values[n])])) };
-  ui.presetDraft.push(item);
+function clearPresetItemEntry() {
   $('presetItemName').value = '';
   $('presetItemQuantity').value = 100;
   $('presetItemUnit').value = 'g';
-  $('presetItemStatus').textContent = '';
-  clearPresetManualGrid();
-  renderMeals();
+  setPresetGridValues({ calories: '', protein: '', carbs: '', fat: '', fibre: '', sugar: '' });
+  $('presetNutrientGrid').hidden = true;
+  $('addPresetItem').hidden = true;
+  ui.presetItemManual = false;
 }
 
-$('addPresetItem').addEventListener('click', async () => {
+$('presetCalculate').addEventListener('click', async () => {
   const name = $('presetItemName').value.trim();
   const quantity = num($('presetItemQuantity').value);
   const unit = $('presetItemUnit').value;
-  if (!name || quantity <= 0) {
-    $('presetItemStatus').textContent = 'Enter a food name and quantity first.';
-    return;
-  }
-  const manualValues = readPresetManualValues();
-  if (manualValues) {
-    // Remember the typed values app-wide so future lookups (here and in Add food) find this food.
-    const baseQuantity = comparableQuantity(name, quantity, unit);
-    state.customFoods[foodKey(name)] = { name, baseQuantity, ...manualValues };
-    submitFoodForReview(foodKey(name), { name, baseQuantity, ...manualValues });
-    addDraftItem(name, quantity, unit, manualValues);
-    save();
-    return;
-  }
+  if (!name || quantity <= 0) { $('presetItemStatus').textContent = 'Enter a food name and quantity first.'; return; }
   $('presetItemStatus').textContent = 'Finding nutrition values…';
   const result = await calculateFood(name, quantity, unit, state.customFoods);
   if (!result.values) {
-    $('presetNutrientGrid').hidden = false;
-    $('presetItemStatus').textContent = `Couldn't find "${name}". Enter its nutrition below, then tap Add item — it will be remembered for next time.`;
+    setPresetGridValues({ calories: '', protein: '', carbs: '', fat: '', fibre: '', sugar: '' });
+    ui.presetItemManual = true;
+    showPresetGrid();
+    $('presetItemStatus').textContent = `Couldn't find "${name}". Type its nutrition below, then tap Add this item — it'll be remembered for next time.`;
     return;
   }
-  addDraftItem(name, quantity, unit, result.values);
+  setPresetGridValues(result.values);
+  ui.presetItemManual = result.manualMode;
+  showPresetGrid();
+  $('presetItemStatus').textContent = `${result.status} Review, then tap Add this item.`;
+});
+
+$('presetManualToggle').addEventListener('click', () => {
+  setPresetGridValues({ calories: '', protein: '', carbs: '', fat: '', fibre: '', sugar: '' });
+  ui.presetItemManual = true;
+  showPresetGrid();
+  $('presetItemStatus').textContent = 'Type the nutrition for this quantity of the food, then tap Add this item.';
+});
+
+$('presetShotInput').addEventListener('change', async event => {
+  const file = event.target.files[0];
+  event.target.value = '';
+  if (!file) return;
+  $('presetItemStatus').textContent = 'Reading the screenshot… the first time downloads the reader, which can take a minute.';
+  const url = URL.createObjectURL(file);
+  try {
+    const text = await recognizeTextInImage(url, percent => { $('presetItemStatus').textContent = `Reading the screenshot… ${percent}%`; });
+    const parsed = parseNutritionFromText(text);
+    const found = NUTRIENTS.filter(n => parsed.values[n] !== null);
+    if (!found.length) {
+      $('presetItemStatus').textContent = 'Couldn’t read nutrition from this image. Type it in, or try a clearer screenshot.';
+      setPresetGridValues({ calories: '', protein: '', carbs: '', fat: '', fibre: '', sugar: '' });
+    } else {
+      setPresetGridValues(parsed.values);
+      if (parsed.servingG) { $('presetItemQuantity').value = parsed.servingG; $('presetItemUnit').value = 'g'; }
+      $('presetItemStatus').textContent = `Read ${found.length} value(s)${parsed.servingG ? ` for ${parsed.servingG}g` : ''}. Add a food name, check the numbers, then Add this item.`;
+    }
+    ui.presetItemManual = true;
+    showPresetGrid();
+  } catch (error) {
+    $('presetItemStatus').textContent = error.message || 'Could not read this image.';
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+});
+
+$('addPresetItem').addEventListener('click', () => {
+  const name = $('presetItemName').value.trim();
+  const quantity = num($('presetItemQuantity').value);
+  const unit = $('presetItemUnit').value;
+  if (!name || quantity <= 0) { $('presetItemStatus').textContent = 'Enter a food name and quantity first.'; return; }
+  const values = readPresetGridValues();
+  if (values.calories === null && values.protein === null) {
+    $('presetItemStatus').textContent = 'Calculate, read a screenshot, or type the nutrition before adding.';
+    return;
+  }
+  if (ui.presetItemManual) {
+    // Remember typed values app-wide (and queue for the shared bank) so future lookups find this food.
+    const baseQuantity = comparableQuantity(name, quantity, unit);
+    const clean = Object.fromEntries(NUTRIENTS.map(n => [n, num(values[n])]));
+    state.customFoods[foodKey(name)] = { name, baseQuantity, ...clean };
+    submitFoodForReview(foodKey(name), { name, baseQuantity, ...clean });
+  }
+  ui.presetDraft.push({ name, quantity, unit, ...Object.fromEntries(NUTRIENTS.map(n => [n, num(values[n])])) });
+  clearPresetItemEntry();
+  $('presetItemStatus').textContent = '';
+  renderMeals();   // reflect the new draft item immediately, before any async save
+  save();
 });
 
 $('presetForm').addEventListener('submit', event => {
@@ -1025,10 +1077,8 @@ $('presetForm').addEventListener('submit', event => {
 $('resetPreset').addEventListener('click', () => {
   ui.presetDraft = [];
   $('presetForm').reset();
-  $('presetItemQuantity').value = 100;
-  $('presetItemUnit').value = 'g';
+  clearPresetItemEntry();
   $('presetItemStatus').textContent = '';
-  clearPresetManualGrid();
   renderMeals();
 });
 
@@ -1473,8 +1523,20 @@ watchAuthState(async user => {
     const recovered = await recoverIndexedBackup();
     if (recovered) state = normalizeState(recovered);
   }
-  showTab('today');
+  // A brand-new account starts on Profile so they set up their name, body
+  // details and targets before logging anything.
+  const firstTime = !state.onboarded;
+  if (firstTime) {
+    state.onboarded = true;
+    saveLocalState(state, user.uid);
+    if (currentUser) saveCloudState(user.uid, state);
+  }
+  showTab(firstTime ? 'profile' : 'today');
   render();
+  if (firstTime) {
+    $('profileMessage').textContent = 'Welcome! Add your name and body details here to personalise your targets, then start logging.';
+    setTimeout(() => { $('profileMessage').textContent = ''; }, 8000);
+  }
   applyActivitySync({ silent: true });
   if (isAdmin()) renderPendingFoods();
 });
