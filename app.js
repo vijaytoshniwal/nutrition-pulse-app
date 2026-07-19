@@ -397,8 +397,9 @@ $('scanBarcode').hidden = !isBarcodeScanSupported();
 
 $('scanBarcode').addEventListener('click', async () => {
   $('scannerOverlay').hidden = false;
-  $('scannerStatus').textContent = 'Point the camera at a barcode…';
-  activeScanner = scanBarcodeFromCamera($('scannerVideo'));
+  activeScanner = scanBarcodeFromCamera($('scannerVideo'), $('scannerFallback'), message => {
+    $('scannerStatus').textContent = message;
+  });
   try {
     const code = await activeScanner.promise;
     $('scannerStatus').textContent = `Found ${code} — looking it up…`;
@@ -419,9 +420,12 @@ $('scanBarcode').addEventListener('click', async () => {
     ui.form.manualMode = false;
     setNutrientEditing(false);
     $('lookupStatus').textContent = `Scanned: ${product.name}. Adjust the quantity if you ate more or less — then tap Calculate to rescale, or save as is.`;
-  } catch {
+  } catch (error) {
     if (activeScanner) { activeScanner.stop(); activeScanner = null; }
     $('scannerOverlay').hidden = true;
+    if (!error || error.message !== 'cancelled') {
+      $('lookupStatus').textContent = 'Could not start the camera. Allow camera access for this site and try again.';
+    }
   }
 });
 
