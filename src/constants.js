@@ -1,5 +1,5 @@
 /** Shown on the sign-in screen; keep in step with the cache version in sw.js. */
-export const APP_VERSION = '2.19';
+export const APP_VERSION = '2.20';
 
 export const NUTRIENTS = ['calories', 'protein', 'carbs', 'fat', 'fibre', 'sugar'];
 
