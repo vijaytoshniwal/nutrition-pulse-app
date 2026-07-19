@@ -1,3 +1,6 @@
+/** Shown on the sign-in screen; keep in step with the cache version in sw.js. */
+export const APP_VERSION = '2.14';
+
 export const NUTRIENTS = ['calories', 'protein', 'carbs', 'fat', 'fibre', 'sugar'];
 
 export const DEFAULT_TARGETS = { calories: 2000, protein: 120, carbs: 230, fat: 65, fibre: 30, sugar: 40, water: 2.5 };
