@@ -1,4 +1,4 @@
-import { NUTRIENTS, QUOTES, FOOD_PICKS, NAV_ITEMS } from './src/constants.js';
+import { NUTRIENTS, QUOTES, FOOD_PICKS, NAV_ITEMS, APP_VERSION } from './src/constants.js';
 import { $, num, dayKey, displayDate, dayOfYear, foodKey } from './src/utils.js';
 import {
   loadLocalState, saveLocalState, normalizeState, totalsFor, rolloverIfNewDay,
@@ -1357,6 +1357,7 @@ watchAuthState(async user => {
   applyActivitySync({ silent: true });
 });
 
+$('appVersion').textContent = `Version ${APP_VERSION}`;
 renderAuthScreen();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js');
 scheduleMidnightCheck();
