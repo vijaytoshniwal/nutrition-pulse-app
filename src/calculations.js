@@ -37,6 +37,11 @@ export function weeklyData(state, todayTotals) {
 
 /** 0-100 sub-scores for a single day's totals, weighted into an overall score. */
 export function scoreParts(targets, totals, water) {
+  // With nothing logged there is nothing to reward — a "stayed under sugar"
+  // 100 alongside four zeros just looks broken, so an empty day scores 0.
+  const hasFood = totals.calories > 0 || totals.protein > 0 || totals.carbs > 0
+    || totals.fat > 0 || totals.fibre > 0 || totals.sugar > 0;
+
   const calGoal = Math.max(1, num(targets.calories));
   const cal = totals.calories <= calGoal
     ? Math.round((totals.calories / calGoal) * 100)
@@ -45,7 +50,9 @@ export function scoreParts(targets, totals, water) {
   const fibre = Math.min(100, Math.round((totals.fibre / Math.max(1, num(targets.fibre))) * 100));
   const hyd = Math.min(100, Math.round((water / Math.max(0.05, num(targets.water))) * 100));
   const sugarGoal = Math.max(1, num(targets.sugar));
-  const sugar = totals.sugar <= sugarGoal ? 100 : Math.max(0, Math.round(100 - ((totals.sugar - sugarGoal) / sugarGoal) * 150));
+  const sugar = !hasFood ? 0
+    : totals.sugar <= sugarGoal ? 100
+    : Math.max(0, Math.round(100 - ((totals.sugar - sugarGoal) / sugarGoal) * 150));
   const total = Math.round(cal * 0.3 + protein * 0.25 + fibre * 0.15 + hyd * 0.15 + sugar * 0.15);
   return { cal, protein, fibre, hyd, sugar, total };
 }
@@ -71,6 +78,7 @@ export function weeklyScoreParts(state, todayTotals) {
 }
 
 export function gradeForScore(score) {
+  if (score <= 0) return '—';   // nothing logged yet — don't hand a new user a failing grade
   if (score >= 90) return 'A';
   if (score >= 85) return 'A-';
   if (score >= 80) return 'B+';
