@@ -7,7 +7,8 @@ export const userCacheKey = uid => `${STORAGE_KEY}-${uid}`;
 
 export function freshState() {
   return {
-    theme: 'light',
+    theme: 'auto',
+    themeChosen: false,
     targets: { ...DEFAULT_TARGETS },
     water: 0,
     foods: [],
@@ -43,6 +44,8 @@ export function normalizeState(data) {
   state.mealPresets = Array.isArray(state.mealPresets) ? state.mealPresets : [];
   state.lastAlertDate = state.lastAlertDate || {};
   state.currentDate = state.currentDate || dayKey();
+  // Follow the device's light/dark setting unless the user explicitly picked a theme.
+  if (!state.themeChosen) state.theme = 'auto';
   return state;
 }
 
