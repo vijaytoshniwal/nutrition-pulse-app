@@ -43,9 +43,12 @@ function scanWithNativeDetector(videoElement, fallbackContainer, onStatus) {
   const promise = (async () => {
     fallbackContainer.hidden = true;
     videoElement.hidden = false;
-    if (onStatus) onStatus('Point the camera at a barcode…');
+    if (onStatus) onStatus('Hold the barcode steady, 10–15 cm from the camera…');
     const detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e'] });
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    // 1D barcodes need horizontal pixel density — ask for high resolution.
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+    });
     videoElement.srcObject = stream;
     await videoElement.play();
 
@@ -90,13 +93,24 @@ function scanWithLibrary(videoElement, fallbackContainer, onStatus) {
       formatsToSupport: [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E],
       verbose: false,
     });
-    if (onStatus) onStatus('Point the camera at a barcode…');
+    if (onStatus) onStatus('Fit the barcode inside the box, 10–15 cm from the camera…');
 
     return new Promise((resolve, reject) => {
       rejectActive = reject;
       scanner.start(
         { facingMode: 'environment' },
-        { fps: 10 },
+        {
+          fps: 15,
+          // A wide box crops the decode area to barcode shape — much more
+          // reliable for 1D codes than scanning the whole frame, and it
+          // shows the user exactly where to hold the code.
+          qrbox: (viewWidth, viewHeight) => ({
+            width: Math.round(viewWidth * 0.85),
+            height: Math.round(Math.min(viewHeight, viewWidth) * 0.38),
+          }),
+          // 1D barcodes need horizontal pixel density — ask for high resolution.
+          videoConstraints: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+        },
         decodedText => resolve(decodedText),
         () => { /* per-frame misses are normal — keep scanning */ }
       ).catch(reject);
