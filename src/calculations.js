@@ -88,8 +88,11 @@ export function sparklineData(state, todayTotals) {
     last7.push(k === state.currentDate ? { id: k, calories: todayTotals.calories } : (state.history.find(h => h.id === k) || { id: k, calories: 0 }));
   }
   const maxCal = Math.max(1, ...last7.map(d => num(d.calories)));
+  const calorieGoal = Math.max(1, num(state.targets.calories));
   return last7.map(d => ({
     id: d.id,
+    calories: Math.round(num(d.calories)),
+    overLimit: num(d.calories) > calorieGoal,
     heightPercent: Math.max(4, Math.round((num(d.calories) / maxCal) * 100)),
     label: weekdayLabel(d.id).slice(0, 1),
     isToday: d.id === state.currentDate,
