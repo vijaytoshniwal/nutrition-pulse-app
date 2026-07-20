@@ -2,14 +2,15 @@ import { FOOD_DB } from './food-db.js';
 import { num, round1, dayKey } from './utils.js';
 
 /**
- * Builds a full day's Indian diet plan from the built-in food database, fitted
- * to the user's calorie target and vegetarian preference. Every meal slot has
- * several hand-picked combinations; portions of the main items are scaled to
- * the slot's share of the day's calories (drinks/chutneys/salads stay at their
- * normal serving). If the day still falls short on protein, snack slots get a
- * "protein top-up" item. Generation is deterministic for a given (targets,
- * vegOnly, variant), so "New plan" (variant + 1) always changes the menu and a
- * synced plan renders identically on every device.
+ * Weekly diet plan engine (the Plans tab). Builds Monday–Sunday, four meals a
+ * day — Breakfast 25% · Lunch 32% · Snack 13% · Dinner 30% of the day's
+ * calorie target — from hand-picked combinations of built-in foods. Portions
+ * of the main items scale in 5 g steps to hit each meal's calorie slot
+ * (drinks, chutneys and side salads stay at their normal serving). If a day
+ * runs short on protein, snack/breakfast get a "protein top-up" item while
+ * the day stays within ~107% of its calorie target. Deterministic for a given
+ * (targets, vegOnly, variant): a synced plan renders identically everywhere,
+ * and "Swap day" simply steps that day to its next combination.
  */
 
 const byName = new Map(FOOD_DB.map(item => [item.n.toLowerCase(), item]));
@@ -17,10 +18,11 @@ const byName = new Map(FOOD_DB.map(item => [item.n.toLowerCase(), item]));
 /** Template component: a FOOD_DB item name and how many typical servings of it. */
 const c = (n, servings, opts = {}) => ({ n, servings, fixed: !!opts.fixed });
 
-const SLOTS = [
+export const MEAL_SLOTS = [
   {
     id: 'breakfast', name: 'Breakfast', time: '8:00 – 9:30 am', share: 0.25,
     options: [
+      [c('Poha', 1), c('Sprouts salad', 1), c('Milk toned', 1, { fixed: true })],
       [c('Poha', 1), c('Curd', 1), c('Masala chai', 1, { fixed: true })],
       [c('Oats porridge', 1), c('Banana', 1, { fixed: true }), c('Almonds', 1, { fixed: true })],
       [c('Besan chilla', 2), c('Green chutney', 1, { fixed: true }), c('Curd', 1)],
@@ -34,63 +36,58 @@ const SLOTS = [
     ],
   },
   {
-    id: 'midmorning', name: 'Mid-morning', time: '11:00 – 11:30 am', share: 0.1,
+    id: 'lunch', name: 'Lunch', time: '1:00 – 2:00 pm', share: 0.32,
     options: [
-      [c('Apple', 1), c('Green tea', 1, { fixed: true })],
-      [c('Banana', 1)],
-      [c('Papaya', 1), c('Coconut water', 1, { fixed: true })],
-      [c('Guava', 1)],
-      [c('Buttermilk', 1, { fixed: true }), c('Roasted chana', 1)],
-      [c('Sprouts salad', 1)],
-      [c('Pomegranate', 1)],
-      [c('Orange', 1), c('Almonds', 1, { fixed: true })],
-    ],
-  },
-  {
-    id: 'lunch', name: 'Lunch', time: '1:00 – 2:00 pm', share: 0.3,
-    options: [
+      [c('Chapati', 2), c('Moong dal', 1), c('Bhindi fry', 1), c('Curd', 1)],
       [c('Chapati', 2), c('Dal tadka', 1), c('Mix veg sabzi', 1), c('Green salad', 1, { fixed: true })],
       [c('Steamed rice', 1), c('Rajma', 1), c('Curd', 1), c('Green salad', 1, { fixed: true })],
       [c('Chapati', 2), c('Palak paneer', 1), c('Cucumber raita', 1)],
       [c('Veg pulao', 1), c('Kadhi', 1), c('Green salad', 1, { fixed: true })],
       [c('Chapati', 2), c('Chole', 1), c('Onion tomato salad', 1, { fixed: true }), c('Buttermilk', 1, { fixed: true })],
-      [c('Brown rice', 1), c('Dal palak', 1), c('Bhindi fry', 1), c('Curd', 1)],
+      [c('Brown rice', 1), c('Dal palak', 1), c('Beans sabzi', 1), c('Curd', 1)],
       [c('Chapati', 2), c('Chicken curry', 1), c('Green salad', 1, { fixed: true })],
       [c('Steamed rice', 1), c('Fish curry', 1), c('Green salad', 1, { fixed: true })],
     ],
   },
   {
-    id: 'evening', name: 'Evening snack', time: '4:30 – 5:30 pm', share: 0.1,
+    id: 'snack', name: 'Snack', time: '4:30 – 5:30 pm', share: 0.13,
     options: [
+      [c('Roasted chana', 1), c('Apple', 1, { fixed: true })],
       [c('Roasted chana', 1), c('Masala chai', 1, { fixed: true })],
       [c('Makhana roasted', 1), c('Green tea', 1, { fixed: true })],
       [c('Sattu drink', 1)],
       [c('Dhokla', 1), c('Green tea', 1, { fixed: true })],
       [c('Fruit chaat', 1)],
       [c('Sprouts salad', 1), c('Masala chai', 1, { fixed: true })],
+      [c('Banana', 1), c('Buttermilk', 1, { fixed: true })],
+      [c('Guava', 1), c('Green tea', 1, { fixed: true })],
+      [c('Papaya', 1), c('Coconut water', 1, { fixed: true })],
+      [c('Orange', 1), c('Almonds', 1, { fixed: true })],
+      [c('Pomegranate', 1)],
       [c('Boiled egg', 1), c('Green tea', 1, { fixed: true })],
     ],
   },
   {
-    id: 'dinner', name: 'Dinner', time: '7:30 – 9:00 pm', share: 0.25,
+    id: 'dinner', name: 'Dinner', time: '7:30 – 9:00 pm', share: 0.3,
     options: [
+      [c('Paneer bhurji', 1), c('Jowar roti', 2), c('Grilled vegetables', 1)],
       [c('Chapati', 2), c('Lauki sabzi', 1), c('Moong dal', 1)],
       [c('Khichdi', 1), c('Curd', 1), c('Green salad', 1, { fixed: true })],
-      [c('Chapati', 2), c('Paneer bhurji', 1), c('Green salad', 1, { fixed: true })],
       [c('Veg soup', 1, { fixed: true }), c('Grilled paneer', 1), c('Green salad', 1)],
       [c('Millet khichdi', 1), c('Cucumber raita', 1)],
       [c('Jowar roti', 2), c('Palak sabzi', 1), c('Dal tadka', 1)],
+      [c('Chapati', 2), c('Matar paneer', 1), c('Green salad', 1, { fixed: true })],
       [c('Grilled chicken breast', 1), c('Green salad', 1), c('Chapati', 1)],
       [c('Chapati', 2), c('Egg curry', 1)],
     ],
   },
 ];
 
-/** Highest-protein-first snack additions used when the day's plan runs short. */
-const VEG_BOOSTERS = [c('Low fat paneer', 1.5), c('Greek yogurt', 1), c('Sattu drink', 1), c('Roasted chana', 1)];
+/** Highest-protein-first snack additions used when a day runs short. */
+const VEG_BOOSTERS = [c('Low fat paneer', 1.2), c('Greek yogurt', 1), c('Tofu', 1), c('Sattu drink', 1), c('Roasted chana', 1)];
 const NONVEG_BOOSTERS = [c('Boiled egg', 2), c('Egg white boiled', 3), ...VEG_BOOSTERS];
 
-/** Deterministic PRNG so the same variant always yields the same plan. */
+/** Deterministic PRNG so the same variant always yields the same week. */
 function mulberry32(seed) {
   let t = seed >>> 0;
   return function () {
@@ -111,8 +108,18 @@ function availableOptions(slot, vegOnly) {
   );
 }
 
+/** Deterministic per-slot shuffle; day d takes shuffled[(d + swaps) % len], so a week never repeats a menu until the pool runs out. */
+function shuffledIndices(length, rand) {
+  const order = Array.from({ length }, (_, i) => i);
+  for (let i = length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  return order;
+}
+
 /** 'roti' from '1 roti' — only for true piece foods, not measures like '1 katori'. */
-const MEASURE_WORDS = /katori|bowl|plate|cup|glass|handful|medium|fruit|breast|packet|serving/;
+const MEASURE_WORDS = /katori|bowl|plate|cup|glass|handful|packet|serving/;
 function pieceUnit(item) {
   const match = item.sl && item.sl.match(/^1 (.+)$/);
   if (!match || MEASURE_WORDS.test(match[1])) return null;
@@ -124,15 +131,14 @@ function itemUnit(item) {
   return item.c === 'bev' || LIQUID_NAMES.has(item.n.toLowerCase()) ? 'ml' : 'g';
 }
 
-/** Rounds a scaled quantity to something you'd actually serve. */
+/** Rounds a scaled quantity to something you'd serve: whole pieces, else 5 g steps. */
 function roundQuantity(item, grams) {
   const piece = pieceUnit(item);
   if (piece) {
     const count = Math.max(1, Math.round(grams / item.sg));
     return count * item.sg;
   }
-  const step = grams >= 100 ? 25 : 10;
-  return Math.max(10, Math.round(grams / step) * step);
+  return Math.max(20, Math.round(grams / 5) * 5);
 }
 
 /** Human portion hint: '2 roti', '1 katori', '1.5 bowl' — or '' when grams say it best. */
@@ -183,7 +189,7 @@ function buildMeal(slot, vegOnly, optionIndex, budgetKcal) {
     return toPlanItem(part.item, part.comp.fixed ? Math.round(grams) : roundQuantity(part.item, grams));
   });
 
-  return { slotId: slot.id, name: slot.name, time: slot.time, optionIndex: index, items, loggedOn: null };
+  return { slotId: slot.id, name: slot.name, time: slot.time, items, loggedOn: null };
 }
 
 export function planTotals(meals) {
@@ -195,48 +201,127 @@ export function planTotals(meals) {
   return totals;
 }
 
-export function generateDietPlan(targets, vegOnly, variant) {
-  const targetCalories = Math.max(1000, num(targets.calories) || 2000);
-  const targetProtein = Math.max(30, num(targets.protein) || 100);
-  const rand = mulberry32(variant * 1013904223 + 17);
-
-  const indices = SLOTS.map(slot => Math.floor(rand() * availableOptions(slot, vegOnly).length));
-  const build = budget => SLOTS.map((slot, i) => buildMeal(slot, vegOnly, indices[i], budget * slot.share));
-
-  let meals = build(targetCalories);
-
-  // If the day runs short on protein, pick top-up items — then rebuild the
-  // meals with their calories reserved, so the total still lands on target
-  // instead of the top-ups being piled on top of it.
-  const deficit = targetProtein - planTotals(meals).protein;
-  const boosterSlots = ['midmorning', 'evening', 'breakfast'];
-  const chosen = [];
-  if (deficit > 8) {
-    let remaining = deficit;
-    for (const booster of vegOnly ? VEG_BOOSTERS : NONVEG_BOOSTERS) {
-      if (chosen.length >= boosterSlots.length || remaining <= 8) break;
-      const item = byName.get(booster.n.toLowerCase());
-      if (!item) continue;
-      if (meals.some(meal => meal.items.some(existing => existing.name === item.n))) continue;
-      const planItem = toPlanItem(item, Math.round(item.sg * booster.servings));
-      planItem.booster = true;
-      chosen.push(planItem);
-      remaining -= planItem.protein;
-    }
-  }
-  if (chosen.length) {
-    const boosterKcal = chosen.reduce((total, item) => total + item.calories, 0);
-    meals = build(Math.max(800, targetCalories - boosterKcal));
-    chosen.forEach((item, i) => meals.find(meal => meal.slotId === boosterSlots[i]).items.push(item));
-  }
-
-  return { createdOn: dayKey(), variant, vegOnly: !!vegOnly, targetCalories, targetProtein, meals };
+/** Average per-day totals across the week, for the hub bars and advice. */
+export function weekAverages(plan) {
+  const sum = { calories: 0, protein: 0, carbs: 0, fat: 0, fibre: 0, sugar: 0 };
+  plan.days.forEach(day => {
+    const t = planTotals(day.meals);
+    Object.keys(sum).forEach(key => (sum[key] += t[key]));
+  });
+  Object.keys(sum).forEach(key => (sum[key] = Math.round((sum[key] / plan.days.length) * 10) / 10));
+  return sum;
 }
 
-/** Replaces one meal with the next combination for that slot; the rest of the plan stays put. */
-export function swapMeal(plan, slotId) {
-  const slot = SLOTS.find(s => s.id === slotId);
-  const meal = plan.meals.find(m => m.slotId === slotId);
-  if (!slot || !meal) return null;
-  return buildMeal(slot, plan.vegOnly, meal.optionIndex + 1, plan.targetCalories * slot.share);
+const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+function buildDay(dayIndex, swapCount, orders, vegOnly, targetCalories, targetProtein, date) {
+  const meals = MEAL_SLOTS.map((slot, s) => {
+    const order = orders[s];
+    return buildMeal(slot, vegOnly, order[(dayIndex + swapCount) % order.length], targetCalories * slot.share);
+  });
+
+  // Protein top-up in the snack (then breakfast) while calories still allow —
+  // the day may run to ~107% of target, matching the designed behaviour.
+  const boosters = vegOnly ? VEG_BOOSTERS : NONVEG_BOOSTERS;
+  const boosterSlots = ['snack', 'breakfast'];
+  let added = 0;
+  for (const booster of boosters) {
+    if (added >= boosterSlots.length) break;
+    const totals = planTotals(meals);
+    if (targetProtein - totals.protein <= 8) break;
+    const item = byName.get(booster.n.toLowerCase());
+    if (!item) continue;
+    if (meals.some(meal => meal.items.some(existing => existing.name === item.n))) continue;
+    const planItem = toPlanItem(item, Math.round(item.sg * booster.servings));
+    if (totals.calories + planItem.calories > targetCalories * 1.07) continue;
+    planItem.booster = true;
+    meals.find(meal => meal.slotId === boosterSlots[added]).items.push(planItem);
+    added++;
+  }
+
+  return { name: DAY_NAMES[dayIndex], date, swapCount, meals, loggedOn: null };
+}
+
+/** Monday of the week containing the given day key. */
+export function weekStartKey(fromKey) {
+  const d = new Date(`${fromKey}T00:00:00`);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return dayKey(d);
+}
+
+function shuffleOrders(vegOnly, variant) {
+  const rand = mulberry32(variant * 1013904223 + 71);
+  return MEAL_SLOTS.map(slot => shuffledIndices(availableOptions(slot, vegOnly).length, rand));
+}
+
+/**
+ * The full week. `goal` is recorded for display ('lose' | 'maintain' | 'gain');
+ * targets must already reflect it (computeTargetsFromProfile with that goal).
+ */
+export function generateWeekPlan(targets, vegOnly, variant, goal, startKey) {
+  const targetCalories = Math.max(1000, num(targets.calories) || 2000);
+  const targetProtein = Math.max(30, num(targets.protein) || 100);
+  const orders = shuffleOrders(vegOnly, variant);
+  const start = new Date(`${startKey}T00:00:00`);
+
+  const days = DAY_NAMES.map((_, dayIndex) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + dayIndex);
+    return buildDay(dayIndex, 0, orders, vegOnly, targetCalories, targetProtein, dayKey(date));
+  });
+
+  return {
+    createdOn: dayKey(), variant, vegOnly: !!vegOnly, goal: goal || 'maintain',
+    targetCalories, targetProtein,
+    targets: { ...targets },
+    weekStart: startKey,
+    days,
+  };
+}
+
+/** Rebuilds one day with its next set of menus; the other six days stay put. */
+export function swapDay(plan, dayIndex) {
+  const day = plan.days[dayIndex];
+  if (!day) return null;
+  const orders = shuffleOrders(plan.vegOnly, plan.variant);
+  return buildDay(dayIndex, day.swapCount + 1, orders, plan.vegOnly, plan.targetCalories, plan.targetProtein, day.date);
+}
+
+// ---------- Grocery list ----------
+
+const GROCERY_GROUPS = [
+  { id: 'protein', emoji: '🫘', label: 'Pulses & protein', cats: ['dal'] },
+  { id: 'nonveg', emoji: '🍳', label: 'Eggs, meat & fish', cats: ['nonveg'] },
+  { id: 'dairy', emoji: '🥛', label: 'Dairy & paneer', cats: ['dairy'] },
+  { id: 'grains', emoji: '🌾', label: 'Grains & flours', cats: ['grain', 'south', 'meal'] },
+  { id: 'veg', emoji: '🥬', label: 'Vegetables', cats: ['veg', 'salad'] },
+  { id: 'fruit', emoji: '🍎', label: 'Fruit', cats: ['fruit'] },
+  { id: 'extras', emoji: '🥜', label: 'Snacks & extras', cats: ['nuts', 'snack', 'bev', 'cond', 'sweet'] },
+];
+
+function displayQuantity(item, total, unit) {
+  const piece = pieceUnit(item);
+  if (piece && item.c === 'fruit') return `${Math.max(1, Math.round(total / item.sg))} pcs`;
+  if (unit === 'ml' && total >= 500) return `${Math.round(total / 100) / 10} L`;
+  return `${Math.round(total)} ${unit}`;
+}
+
+/** Every plan item summed across the 7 days, grouped for shopping. */
+export function groceryList(plan) {
+  const sums = new Map();
+  plan.days.forEach(day => day.meals.forEach(meal => meal.items.forEach(entry => {
+    const key = entry.name.toLowerCase();
+    sums.set(key, (sums.get(key) || 0) + num(entry.quantity));
+  })));
+
+  const groups = GROCERY_GROUPS.map(group => ({ ...group, items: [] }));
+  const fallback = groups[groups.length - 1];
+  [...sums.entries()].forEach(([key, total]) => {
+    const item = byName.get(key);
+    if (!item) return;
+    const group = groups.find(g => g.cats.includes(item.c)) || fallback;
+    group.items.push({ name: item.n, key, display: displayQuantity(item, total, itemUnit(item)) });
+  });
+  groups.forEach(group => group.items.sort((a, b) => a.name.localeCompare(b.name)));
+  return groups.filter(group => group.items.length);
 }
