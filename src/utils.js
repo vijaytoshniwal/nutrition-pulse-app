@@ -13,7 +13,28 @@ export const weekdayLabel = dateKey =>
 
 export const dayOfYear = date => Math.floor((date - new Date(date.getFullYear(), 0, 0)) / 86400000);
 
-export const foodKey = name => name.trim().toLowerCase().replace(/\s+/g, ' ');
+// Normalize dash variants (en/em dash, minus sign) to a plain hyphen and give
+// hyphens consistent spacing, so "Salad-Cooked", "Salad - Cooked" and
+// "Salad – Cooked" all resolve to the same food.
+export const foodKey = name =>
+  name
+    .trim()
+    .toLowerCase()
+    .replace(/[‐-―−]/g, '-')
+    .replace(/\s*-\s*/g, ' - ')
+    .replace(/\s+/g, ' ');
+
+// A consistent display name for manually entered foods: dash variants
+// normalized and evenly spaced, sentence case (first letter capitalized), to
+// match the built-in database's convention.
+export const standardName = name => {
+  const clean = name
+    .trim()
+    .replace(/[‐-―−]/g, '-')
+    .replace(/\s*-\s*/g, ' - ')
+    .replace(/\s+/g, ' ');
+  return clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase();
+};
 
 export const round1 = value => Math.round(num(value) * 10) / 10;
 
