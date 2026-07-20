@@ -162,18 +162,29 @@ export async function calculateFood(name, quantity, unit, customFoods) {
     return { values, status: `Calculated from the basic food list${note}`, manualMode: false };
   }
 
-  const dbItem = findInFoodDb(key);
-  if (dbItem) {
-    const values = scaleFoodDbItem(dbItem, quantityGrams / 100);
-    return { values, status: `Calculated from the Indian food database (${dbItem.n}).`, manualMode: false };
-  }
+  const fromDb = item => ({
+    values: scaleFoodDbItem(item, quantityGrams / 100),
+    status: `Calculated from the Indian food database (${item.n}).`,
+    manualMode: false,
+  });
 
+  // An exact built-in name is authoritative and resolves first.
+  const dbExact = FOOD_DB.find(item => item.n.toLowerCase() === key);
+  if (dbExact) return fromDb(dbExact);
+
+  // Community-approved entries are consulted before the built-in database's
+  // looser alias matching, so an approved food (e.g. "Millet Roti") isn't
+  // shadowed just for being a sub-phrase of some alias ("pearl millet roti").
   const shared = await fetchFoodBankEntry(key);
   if (shared && shared.baseQuantity > 0) {
     const factor = quantityGrams / shared.baseQuantity;
     const values = Object.fromEntries(NUTRIENTS.map(n => [n, shared[n] == null ? null : Number((num(shared[n]) * factor).toFixed(1))]));
     return { values, status: `Calculated from the shared food bank (${shared.name}). Review the values, then save.`, manualMode: true };
   }
+
+  // Fall back to the built-in database's alias / fuzzy match.
+  const dbAlias = findInFoodDb(key);
+  if (dbAlias) return fromDb(dbAlias);
 
   try {
     const endpoint = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(name)}&search_simple=1&action=process&json=1&page_size=10&fields=product_name,nutriments`;
