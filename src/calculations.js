@@ -122,6 +122,19 @@ export function idealWeightRange(profile) {
   };
 }
 
+/** Body Mass Index plus its WHO category, using height (cm) and current weight (kg). */
+export function computeBMI(profile, weightKg) {
+  const h = num(profile.heightCm) / 100;
+  if (h <= 0 || !weightKg) return null;
+  const bmi = weightKg / (h * h);
+  let category, tone;
+  if (bmi < 18.5) { category = 'Underweight'; tone = 'low'; }
+  else if (bmi < 25) { category = 'Healthy weight'; tone = 'good'; }
+  else if (bmi < 30) { category = 'Overweight'; tone = 'high'; }
+  else { category = 'Obese'; tone = 'high'; }
+  return { value: Math.round(bmi * 10) / 10, category, tone };
+}
+
 /** Mifflin-St Jeor BMR scaled by activity factor, adjusted for the chosen goal/pace. */
 export function computeTargetsFromProfile(profile, weightKg) {
   const h = num(profile.heightCm);
