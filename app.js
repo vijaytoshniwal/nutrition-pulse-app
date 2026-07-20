@@ -14,6 +14,7 @@ import { checkPaceAlerts, notificationsSupported, requestNotificationPermission,
 import { isBarcodeScanSupported, scanBarcodeFromCamera, lookupBarcode } from './src/barcode.js';
 import { watchAuthState, signIn, signUp, signOutUser, resetPassword, loadCloudState, saveCloudState, submitFoodForReview, fetchActivitySync, isAdmin, fetchPendingFoods, approvePendingFood, rejectPendingFood, fetchFoodBank, deleteFoodBankEntry, FIREBASE_PROJECT_ID } from './src/firebase-sync.js';
 import { recognizeTextInImage, parseActivityFromText } from './src/activity-ocr.js';
+import { generateDietPlan, swapMeal, planTotals } from './src/diet-plan.js';
 
 /** Mobile browsers report 100vh as if the address bar were hidden, so measure the
  * real visible height in JS instead of trusting CSS vh units alone. */
@@ -1340,16 +1341,37 @@ $('vegToggle').addEventListener('click', () => {
 
 $('refreshPending').addEventListener('click', renderPendingFoods);
 $('refreshFoodBank').addEventListener('click', renderFoodBank);
+$('foodBankSearch').addEventListener('input', renderFoodBankResults);
 
-/** Admin-only: lists every approved shared food with a Delete button. */
+let adminFoodBankEntries = [];
+
+/** Admin-only: loads the approved shared foods so they can be searched and deleted. */
 async function renderFoodBank() {
   if (!isAdmin()) { $('adminFoodBankCard').hidden = true; return; }
   $('adminFoodBankCard').hidden = false;
-  const foods = (await fetchFoodBank()).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-  $('noFoodBankNote').hidden = foods.length > 0;
+  adminFoodBankEntries = (await fetchFoodBank()).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  renderFoodBankResults();
+}
+
+/** Renders only the approved foods matching the admin's search box, each with Delete. */
+function renderFoodBankResults() {
+  const q = $('foodBankSearch').value.trim().toLowerCase();
   const list = $('foodBankList');
+  const hint = $('foodBankHint');
   list.replaceChildren();
-  foods.forEach(entry => {
+  if (!q) {
+    hint.textContent = `Type a food name to find it (${adminFoodBankEntries.length} approved).`;
+    hint.hidden = false;
+    return;
+  }
+  const matches = adminFoodBankEntries.filter(entry => (entry.name || '').toLowerCase().includes(q));
+  if (!matches.length) {
+    hint.textContent = `No approved foods match “${q}”.`;
+    hint.hidden = false;
+    return;
+  }
+  hint.hidden = true;
+  matches.slice(0, 20).forEach(entry => {
     const li = document.createElement('li');
     const meta = document.createElement('div');
     meta.className = 'entry-meta';
@@ -1361,13 +1383,20 @@ async function renderFoodBank() {
     deleteBtn.addEventListener('click', async () => {
       if (!confirm(`Delete "${entry.name}" from the shared food bank? This removes it for everyone.`)) return;
       await deleteFoodBankEntry(entry.key);
+      adminFoodBankEntries = adminFoodBankEntries.filter(item => item.key !== entry.key);
       await loadFoodBankCache();
-      renderFoodBank();
+      renderFoodBankResults();
     });
     actions.append(deleteBtn);
     li.append(meta, actions);
     list.appendChild(li);
   });
+  if (matches.length > 20) {
+    const more = document.createElement('li');
+    more.className = 'muted small';
+    more.textContent = `Showing first 20 of ${matches.length}. Refine your search.`;
+    list.appendChild(more);
+  }
 }
 
 async function renderPendingFoods() {
@@ -1518,6 +1547,108 @@ $('watchSyncInstructions').addEventListener('click', async event => {
   } catch { /* clipboard unavailable — user can select the text manually */ }
 });
 
+// ---------- Diet plan tab ----------
+
+function buildDietPlan(variant) {
+  state.dietPlan = generateDietPlan(state.targets, state.vegOnly, variant);
+  save();
+}
+
+// A random starting variant gives different users different menus; "New plan"
+// steps deterministically from there so every tap changes the menu.
+$('generateDietPlan').addEventListener('click', () => buildDietPlan(Math.floor(Math.random() * 10000)));
+$('regenDietPlan').addEventListener('click', () => buildDietPlan(state.dietPlan ? state.dietPlan.variant + 1 : 0));
+
+function logDietMeal(meal) {
+  meal.items.forEach(item => {
+    // A plan item carries display-only extras; the food log stores the standard shape.
+    const { serving, booster, ...food } = item;
+    state.foods.push(food);
+    pushRecent(food);
+  });
+  meal.loggedOn = state.currentDate;
+  save();
+}
+
+function renderDiet() {
+  const plan = state.dietPlan;
+  $('generateDietPlan').hidden = !!plan;
+  $('dietIntroNote').hidden = !!plan;
+  $('regenDietPlan').hidden = !plan;
+  $('dietPlanWrap').hidden = !plan;
+  $('dietTargetsLabel').textContent =
+    `${num(state.targets.calories).toLocaleString()} kcal · ${num(state.targets.protein)}g protein target${state.vegOnly ? ' · vegetarian' : ''}`;
+  if (!plan) { $('dietStaleNote').textContent = ''; return; }
+
+  const stale = Math.abs(plan.targetCalories - num(state.targets.calories)) > 50 || plan.vegOnly !== !!state.vegOnly;
+  $('dietStaleNote').textContent = stale
+    ? 'Your targets or food preference changed since this plan was made — tap "New plan" to refit it.' : '';
+
+  const totals = planTotals(plan.meals);
+  const summaryDefs = [
+    ['calories', 'Calories', ' kcal', 'var(--accent)'],
+    ['protein', 'Protein', 'g', 'var(--accent2)'],
+    ['carbs', 'Carbs', 'g', 'var(--accent)'],
+    ['fat', 'Fat', 'g', 'var(--fat)'],
+    ['fibre', 'Fibre', 'g', 'var(--accent2)'],
+    ['sugar', 'Sugar', 'g', 'var(--sugar-c)'],
+  ];
+  renderScoreRows('dietSummaryRows', summaryDefs.map(([key, label, unit, color]) => {
+    const goal = Math.max(1, num(state.targets[key]));
+    return {
+      label,
+      value: `${totals[key]}${unit} / ${goal}${unit}`,
+      percent: Math.min(100, Math.round((totals[key] / goal) * 100)),
+      color,
+    };
+  }));
+
+  const wrap = $('dietMeals');
+  wrap.replaceChildren();
+  plan.meals.forEach((meal, index) => {
+    const mealTotals = totalsFor(meal.items);
+    const card = document.createElement('div');
+    card.className = 'card meal-card';
+
+    const head = document.createElement('div');
+    head.className = 'section-head';
+    head.innerHTML = `<div><h2>${meal.name}</h2><p class="muted small">${meal.time} · ${Math.round(mealTotals.calories)} kcal · ${Math.round(mealTotals.protein * 10) / 10}g protein</p></div>`;
+    const swapBtn = document.createElement('button');
+    swapBtn.type = 'button'; swapBtn.className = 'chip-button'; swapBtn.textContent = 'Swap';
+    swapBtn.addEventListener('click', () => {
+      const next = swapMeal(plan, meal.slotId);
+      if (next) { plan.meals[index] = next; save(); }
+    });
+    head.appendChild(swapBtn);
+
+    const list = document.createElement('ul');
+    list.className = 'entry-list';
+    meal.items.forEach(item => {
+      const li = document.createElement('li');
+      const meta = document.createElement('div');
+      meta.className = 'entry-meta';
+      const portion = `${item.quantity}${item.unit}${item.serving ? ` · ${item.serving}` : ''}`;
+      meta.innerHTML = `<strong>${item.name}${item.booster ? '<span class="tag">protein top-up</span>' : ''}</strong><p>${portion} · ${Math.round(num(item.calories))} kcal · ${Math.round(num(item.protein) * 10) / 10}g protein</p>`;
+      li.appendChild(meta);
+      list.appendChild(li);
+    });
+
+    const actions = document.createElement('div');
+    actions.className = 'field-row';
+    const logBtn = document.createElement('button');
+    logBtn.type = 'button';
+    const loggedToday = meal.loggedOn === state.currentDate;
+    logBtn.className = `${loggedToday ? 'btn-outline' : 'btn-primary'} flex1`;
+    logBtn.textContent = loggedToday ? 'Logged today ✓' : 'Log this meal';
+    logBtn.disabled = loggedToday;
+    logBtn.addEventListener('click', () => logDietMeal(meal));
+    actions.appendChild(logBtn);
+
+    card.append(head, list, actions);
+    wrap.appendChild(card);
+  });
+}
+
 // ---------- Derived data + full render ----------
 
 function computeDerived() {
@@ -1579,6 +1710,7 @@ function render() {
   renderWeight(derived);
   renderActivity(derived);
   renderMeals();
+  renderDiet();
   renderProfile();
   renderNav();
   checkAndFireAlerts(derived);

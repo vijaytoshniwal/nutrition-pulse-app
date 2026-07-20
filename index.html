@@ -123,6 +123,27 @@
           </div>
         </section>
 
+        <section id="tabDiet" class="tab-panel" data-tab="diet" hidden>
+          <div class="card">
+            <div class="section-head">
+              <div><h2>Today's diet plan</h2><p id="dietTargetsLabel" class="muted small"></p></div>
+              <button id="regenDietPlan" type="button" class="chip-button" hidden>New plan</button>
+            </div>
+            <p id="dietIntroNote" class="muted small">A full day of Indian meals put together from your calorie &amp; protein targets and your food preference. Swap any meal you don't fancy, then log it with one tap once you've eaten it.</p>
+            <p id="dietStaleNote" class="form-message"></p>
+            <button id="generateDietPlan" type="button" class="btn-primary">Build my diet plan</button>
+          </div>
+
+          <div id="dietPlanWrap" hidden>
+            <div class="card">
+              <h2>Plan vs your targets</h2>
+              <div id="dietSummaryRows" class="score-rows"></div>
+            </div>
+            <div id="dietMeals" class="diet-meals"></div>
+            <p class="muted micro-note">A guideline, not a prescription — values are typical home-style estimates. Adjust portions to your hunger, and check with a professional for medical diets.</p>
+          </div>
+        </section>
+
         <section id="tabLog" class="tab-panel" data-tab="log" hidden>
           <form id="foodForm" class="card">
             <h2 id="formTitle">Add food</h2>
@@ -451,8 +472,9 @@
               <h2>Food bank — approved</h2>
               <button id="refreshFoodBank" type="button" class="chip-button">Refresh</button>
             </div>
-            <p class="muted small">Foods already in the shared bank. Delete any that were entered or approved by mistake — this removes it for everyone.</p>
-            <p id="noFoodBankNote" class="muted small empty-note" hidden>No approved foods yet.</p>
+            <p class="muted small">Search the shared bank and delete any food entered or approved by mistake — this removes it for everyone.</p>
+            <input id="foodBankSearch" type="text" placeholder="Search approved foods…" autocomplete="off">
+            <p id="foodBankHint" class="muted small empty-note">Type a food name to find it.</p>
             <ul id="foodBankList" class="entry-list"></ul>
           </div>
 

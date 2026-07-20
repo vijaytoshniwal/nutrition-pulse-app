@@ -468,7 +468,7 @@ label { display: flex; flex-direction: column; gap: 5px; font-size: .72rem; colo
 .bottom-nav {
   position: absolute; bottom: 0; left: 0; right: 0; z-index: 2;
   background: var(--nav-bg); backdrop-filter: blur(10px); border-top: 1px solid var(--line);
-  padding: 10px 4px 14px; display: grid; grid-template-columns: repeat(6, 1fr); gap: 0;
+  padding: 10px 4px 14px; display: grid; grid-template-columns: repeat(7, 1fr); gap: 0;
 }
 .nav-item {
   display: flex; flex-direction: column; align-items: center; gap: 4px; background: transparent; border: none;
@@ -509,6 +509,12 @@ label { display: flex; flex-direction: column; gap: 5px; font-size: .72rem; colo
   .app-main { height: calc(var(--vh, 1vh) * 100); }
   .food-pick-grid, .nutrient-grid.three { grid-template-columns: repeat(3, 1fr); }
 }
+
+/* Diet plan tab */
+.diet-meals { display: flex; flex-direction: column; gap: 14px; }
+.meal-card .entry-list { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.meal-card .entry-list li { background: var(--chip-bg); box-shadow: none; padding: 10px 12px; }
+.meal-card .tag { margin-left: 6px; font-size: .62rem; }
 
 /* BMI card */
 .bmi-head { display: flex; align-items: center; gap: 12px; margin: 6px 0 10px; }
