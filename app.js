@@ -1,5 +1,5 @@
 import { NUTRIENTS, QUOTES, FOOD_PICKS, NAV_ITEMS, APP_VERSION } from './src/constants.js';
-import { $, num, dayKey, displayDate, dayOfYear, foodKey } from './src/utils.js';
+import { $, num, dayKey, displayDate, dayOfYear, foodKey, standardName } from './src/utils.js';
 import {
   loadLocalState, saveLocalState, normalizeState, totalsFor, rolloverIfNewDay,
   archiveCurrentDay, exportBackupFile, readBackupFile, saveIndexedBackup, recoverIndexedBackup, userCacheKey,
@@ -532,7 +532,7 @@ $('cancelEdit').addEventListener('click', resetFoodForm);
 
 $('foodForm').addEventListener('submit', event => {
   event.preventDefault();
-  const name = $('foodName').value.trim();
+  const name = standardName($('foodName').value);
   const quantity = num($('foodQuantity').value);
   const unit = $('foodUnit').value;
   const food = { name, quantity, unit };
@@ -1038,7 +1038,7 @@ $('presetShotInput').addEventListener('change', async event => {
 });
 
 $('addPresetItem').addEventListener('click', () => {
-  const name = $('presetItemName').value.trim();
+  const name = standardName($('presetItemName').value);
   const quantity = num($('presetItemQuantity').value);
   const unit = $('presetItemUnit').value;
   if (!name || quantity <= 0) { $('presetItemStatus').textContent = 'Enter a food name and quantity first.'; return; }
