@@ -468,7 +468,7 @@ label { display: flex; flex-direction: column; gap: 5px; font-size: .72rem; colo
 .bottom-nav {
   position: absolute; bottom: 0; left: 0; right: 0; z-index: 2;
   background: var(--nav-bg); backdrop-filter: blur(10px); border-top: 1px solid var(--line);
-  padding: 10px 4px 14px; display: grid; grid-template-columns: repeat(7, 1fr); gap: 0;
+  padding: 10px 4px 14px; display: grid; grid-template-columns: repeat(5, 1fr); gap: 0;
 }
 .nav-item {
   display: flex; flex-direction: column; align-items: center; gap: 4px; background: transparent; border: none;
@@ -510,11 +510,97 @@ label { display: flex; flex-direction: column; gap: 5px; font-size: .72rem; colo
   .food-pick-grid, .nutrient-grid.three { grid-template-columns: repeat(3, 1fr); }
 }
 
-/* Diet plan tab */
-.diet-meals { display: flex; flex-direction: column; gap: 14px; }
-.meal-card .entry-list { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
-.meal-card .entry-list li { background: var(--chip-bg); box-shadow: none; padding: 10px 12px; }
-.meal-card .tag { margin-left: 6px; font-size: .62rem; }
+/* Plans tab */
+.tab-title { font-family: 'Sora', sans-serif; font-weight: 800; font-size: 1.4rem; letter-spacing: -.02em; }
+.tight-card { gap: 8px; }
+
+.plan-hero { background: var(--grad); border-radius: 18px; padding: 14px 16px; color: #fff; display: flex; flex-direction: column; gap: 5px; box-shadow: var(--card-shadow); }
+.plan-hero .hero-top { display: flex; justify-content: space-between; align-items: center; }
+.plan-hero .goal-tag { font-size: .6rem; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; background: rgba(255, 255, 255, .2); padding: 3px 9px; border-radius: 999px; }
+.plan-hero .journey { font-size: .68rem; opacity: .85; }
+.plan-hero .kcal { font-family: 'Sora', sans-serif; font-weight: 800; font-size: 1.6rem; line-height: 1.05; }
+.plan-hero .kcal small { font-size: .82rem; font-weight: 700; opacity: .85; }
+.plan-hero p { font-size: .7rem; opacity: .9; }
+
+.seg { display: flex; background: var(--track); border-radius: 13px; padding: 4px; gap: 2px; }
+.seg button { flex: 1; border: 0; background: transparent; font: inherit; font-size: .76rem; font-weight: 700; color: var(--muted); padding: 8px 4px; border-radius: 10px; cursor: pointer; }
+.seg button.on { background: var(--panel); color: var(--accent); box-shadow: var(--card-shadow); }
+
+.week-strip { display: flex; gap: 5px; justify-content: space-between; }
+.week-day { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 1px; border-radius: 11px; background: var(--chip-bg); border: 1px solid var(--line); cursor: pointer; }
+.week-day strong { font-size: .78rem; font-weight: 800; color: var(--ink); }
+.week-day span { font-size: .5rem; font-weight: 700; text-transform: uppercase; color: var(--muted); }
+.week-day.on { background: var(--grad); border-color: transparent; }
+.week-day.on strong, .week-day.on span { color: #fff; }
+
+.plan-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.plan-tile { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 13px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; box-shadow: var(--card-shadow); text-align: left; }
+.plan-tile .tile-ic { width: 32px; height: 32px; border-radius: 10px; background: var(--chip-bg); display: grid; place-items: center; font-size: 1rem; }
+.plan-tile strong { font-family: 'Sora', sans-serif; font-size: .84rem; }
+.plan-tile span:last-child { font-size: .66rem; color: var(--muted); }
+
+.plan-subhead { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 2px 0 4px; }
+.plan-subtitle { text-align: center; flex: 1; min-width: 0; }
+.plan-subtitle h2 { font-family: 'Sora', sans-serif; font-weight: 800; font-size: 1.15rem; letter-spacing: -.02em; }
+
+.day-rings { display: flex; justify-content: space-around; gap: 8px; }
+.macbar { display: flex; gap: 6px; }
+.mac { flex: 1; background: var(--track); border-radius: 10px; padding: 8px 4px; text-align: center; }
+.mac strong { display: block; font-size: .84rem; font-weight: 800; }
+.mac span { font-size: .52rem; font-weight: 700; text-transform: uppercase; color: var(--muted); }
+
+.diet-meals { display: flex; flex-direction: column; gap: 12px; }
+.meal-card { gap: 8px; }
+.meal-card .meal-top { display: flex; justify-content: space-between; align-items: center; }
+.meal-card .meal-top .l { display: flex; align-items: center; gap: 8px; }
+.meal-card .meal-dot { width: 9px; height: 9px; border-radius: 3px; }
+.meal-card .meal-top h3 { font-family: 'Sora', sans-serif; font-size: .86rem; font-weight: 700; margin: 0; }
+.meal-card .meal-kc { font-size: .72rem; font-weight: 800; color: var(--accent); }
+.meal-card .meal-time { font-size: .62rem; color: var(--muted); font-weight: 700; }
+.food-row { display: flex; justify-content: space-between; gap: 8px; font-size: .8rem; padding: 3px 0; }
+.food-row .q { color: var(--muted); flex: none; }
+.food-row .tp { color: var(--accent2); font-weight: 700; font-size: .64rem; margin-left: 5px; }
+
+.gsum { display: flex; gap: 8px; }
+.gsum .b { flex: 1; background: var(--panel); border: 1px solid var(--line); border-radius: 13px; padding: 10px; text-align: center; box-shadow: var(--card-shadow); }
+.gsum .b strong { display: block; font-family: 'Sora', sans-serif; font-size: 1rem; font-weight: 800; }
+.gsum .b span { font-size: .54rem; font-weight: 700; text-transform: uppercase; color: var(--muted); }
+.gcat-head { font-size: .6rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); margin: 7px 0 2px; }
+.gcat-head:first-child { margin-top: 0; }
+.grocery-item { display: flex; align-items: center; gap: 10px; padding: 7px 1px; border-bottom: 1px solid var(--line); font-size: .8rem; cursor: pointer; }
+.grocery-item:last-child { border-bottom: 0; }
+.grocery-item .nm { flex: 1; }
+.grocery-item .q { font-weight: 800; color: var(--muted); flex: none; }
+.gbox { width: 17px; height: 17px; border-radius: 5px; border: 2px solid var(--muted); flex: none; position: relative; }
+.grocery-item.done .gbox { background: var(--accent); border-color: var(--accent); }
+.grocery-item.done .gbox::after { content: ""; position: absolute; left: 4px; top: 0; width: 4px; height: 9px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(42deg); }
+.grocery-item.done .nm { text-decoration: line-through; color: var(--muted); }
+
+.plan-banner { background: linear-gradient(150deg, rgba(219, 227, 138, .5), rgba(143, 214, 168, .28)); border: 1px solid var(--line); border-radius: 14px; padding: 12px 13px; display: flex; gap: 10px; align-items: center; }
+[data-theme="dark"] .plan-banner { background: linear-gradient(150deg, rgba(76, 90, 42, .5), rgba(39, 77, 51, .4)); }
+.plan-banner .banner-ic { font-size: 1.2rem; }
+.plan-banner strong { font-family: 'Sora', sans-serif; font-size: .8rem; display: block; }
+.plan-banner p { font-size: .68rem; color: var(--sub, var(--muted)); margin: 1px 0 0; }
+
+#adviceCards { display: flex; flex-direction: column; gap: 10px; }
+.adv-card { display: flex; gap: 11px; align-items: flex-start; }
+.adv-card .adv-ic { width: 34px; height: 34px; border-radius: 10px; background: var(--water-soft); display: grid; place-items: center; font-size: 1rem; flex: none; }
+.adv-card h3 { font-family: 'Sora', sans-serif; font-size: .82rem; font-weight: 700; margin: 0 0 2px; }
+.adv-card p { font-size: .72rem; color: var(--muted); line-height: 1.45; margin: 0; }
+
+/* More tab */
+.more-menu { display: flex; flex-direction: column; gap: 8px; }
+.more-group { font-size: .58rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 8px 2px 0; }
+.more-row { display: flex; align-items: center; gap: 12px; padding: 12px 13px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--card-shadow); cursor: pointer; text-align: left; width: 100%; font: inherit; color: var(--ink); }
+.more-row .mic { width: 32px; height: 32px; border-radius: 10px; background: var(--chip-bg); display: grid; place-items: center; font-size: 1rem; flex: none; }
+.more-row .mtx { flex: 1; min-width: 0; }
+.more-row .mtx strong { font-family: 'Sora', sans-serif; font-size: .84rem; font-weight: 700; display: block; }
+.more-row .mtx span { font-size: .66rem; color: var(--muted); }
+.more-row .chev { color: var(--muted); }
+.more-row .pill { font-size: .56rem; font-weight: 800; text-transform: uppercase; background: var(--accent); color: #fff; padding: 3px 8px; border-radius: 999px; }
+.more-row .pill.off { background: var(--track); color: var(--muted); }
+.more-row.danger .mic { background: var(--danger-soft); color: var(--danger); }
+.more-row.danger .mtx strong { color: var(--danger); }
 
 /* BMI card */
 .bmi-head { display: flex; align-items: center; gap: 12px; margin: 6px 0 10px; }

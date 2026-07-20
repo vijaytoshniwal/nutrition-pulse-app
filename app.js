@@ -1,4 +1,4 @@
-import { NUTRIENTS, QUOTES, FOOD_PICKS, NAV_ITEMS, APP_VERSION } from './src/constants.js';
+import { NUTRIENTS, QUOTES, FOOD_PICKS, NAV_ITEMS, MORE_TABS, APP_VERSION } from './src/constants.js';
 import { $, num, dayKey, displayDate, dayOfYear, foodKey, standardName } from './src/utils.js';
 import {
   loadLocalState, saveLocalState, normalizeState, totalsFor, rolloverIfNewDay,
@@ -14,7 +14,7 @@ import { checkPaceAlerts, notificationsSupported, requestNotificationPermission,
 import { isBarcodeScanSupported, scanBarcodeFromCamera, lookupBarcode } from './src/barcode.js';
 import { watchAuthState, signIn, signUp, signOutUser, resetPassword, loadCloudState, saveCloudState, submitFoodForReview, fetchActivitySync, isAdmin, fetchPendingFoods, approvePendingFood, rejectPendingFood, fetchFoodBank, deleteFoodBankEntry, FIREBASE_PROJECT_ID } from './src/firebase-sync.js';
 import { recognizeTextInImage, parseActivityFromText } from './src/activity-ocr.js';
-import { generateDietPlan, swapMeal, planTotals } from './src/diet-plan.js';
+import { generateWeekPlan, swapDay, planTotals, weekAverages, groceryList, weekStartKey } from './src/diet-plan.js';
 
 /** Mobile browsers report 100vh as if the address bar were hidden, so measure the
  * real visible height in JS instead of trusting CSS vh units alone. */
@@ -78,6 +78,8 @@ const ui = {
   form: freshForm(),
   presetDraft: [],
   presetItemManual: false,
+  plansView: 'hub',
+  selectedDay: null,
 };
 
 function freshForm() {
@@ -223,7 +225,9 @@ function renderNav() {
   NAV_ITEMS.forEach(item => {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = `nav-item${ui.tab === item.id ? ' active' : ''}`;
+    // Activity, Meals and Profile live behind the More menu, so More stays lit while they're open.
+    const active = ui.tab === item.id || (item.id === 'more' && MORE_TABS.includes(ui.tab));
+    btn.className = `nav-item${active ? ' active' : ''}`;
     btn.innerHTML = `<span class="nav-icon"></span><span class="nav-label">${item.label}</span>`;
     btn.addEventListener('click', () => showTab(item.id));
     nav.appendChild(btn);
@@ -249,26 +253,40 @@ function renderToday(derived) {
   $('caloriesRemainingLabel').textContent = derived.caloriesRemainingLabel;
   $('proteinRemainingLabel').textContent = derived.proteinRemainingLabel;
 
-  const quickAdds = state.recents.slice(0, 4);
-  $('noRecentsNote').hidden = quickAdds.length > 0;
+  // Quick add offers today's still-unlogged planned meals first, then recents.
+  const planMeals = todaysPlanMeals().slice(0, 2);
+  const quickAdds = state.recents.slice(0, 4 - planMeals.length);
+  $('noRecentsNote').hidden = planMeals.length > 0 || quickAdds.length > 0;
+  if ($('quickAddTag')) $('quickAddTag').textContent = planMeals.length ? 'from your plan' : 'recent foods';
   const list = $('quickAddList');
   list.replaceChildren();
-  quickAdds.forEach(recent => {
+  const quickRow = (labelText, kcalText, onAdd) => {
     const li = document.createElement('li');
     const label = document.createElement('span');
-    label.textContent = `${recent.name} · ${recent.quantity}${recent.unit}`;
+    label.textContent = labelText;
     const right = document.createElement('div');
     right.className = 'qty';
     const kcal = document.createElement('span');
-    kcal.textContent = `${Math.round(num(recent.calories))} kcal`;
+    kcal.textContent = kcalText;
     const addBtn = document.createElement('button');
     addBtn.type = 'button';
     addBtn.className = 'round-add';
     addBtn.textContent = '+';
-    addBtn.addEventListener('click', () => quickAddFood(recent));
+    addBtn.addEventListener('click', onAdd);
     right.append(kcal, addBtn);
     li.append(label, right);
     list.appendChild(li);
+  };
+  planMeals.forEach(meal => {
+    const t = totalsFor(meal.items);
+    const names = meal.items.slice(0, 2).map(i => i.name).join(' + ') + (meal.items.length > 2 ? ' +' : '');
+    quickRow(`${meal.name} · ${names}`, `+ ${Math.round(t.calories)}`, () => {
+      addPlanMealFoods(meal);
+      save();
+    });
+  });
+  quickAdds.forEach(recent => {
+    quickRow(`${recent.name} · ${recent.quantity}${recent.unit}`, `${Math.round(num(recent.calories))} kcal`, () => quickAddFood(recent));
   });
 
   const macroDefs = [
@@ -1547,19 +1565,53 @@ $('watchSyncInstructions').addEventListener('click', async event => {
   } catch { /* clipboard unavailable — user can select the text manually */ }
 });
 
-// ---------- Diet plan tab ----------
+// ---------- Plans tab (weekly diet plan) ----------
 
-function buildDietPlan(variant) {
-  state.dietPlan = generateDietPlan(state.targets, state.vegOnly, variant);
+const MEAL_DOTS = { breakfast: 'var(--accent2)', lunch: 'var(--accent)', snack: 'var(--fat)', dinner: 'var(--water)' };
+const GOALS = [['lose', 'Lose'], ['maintain', 'Maintain'], ['gain', 'Gain']];
+const goalLabelFor = goal => (GOALS.find(g => g[0] === goal) || ['', 'Maintain'])[1];
+
+/** Goal-specific targets from the body profile; null when it's incomplete. */
+function targetsForGoal(goal) {
+  return computeTargetsFromProfile({ ...state.profile, goal }, latestWeight(state));
+}
+
+function buildWeekPlan({ goal, variant } = {}) {
+  const chosenGoal = goal || (state.weekPlan && state.weekPlan.goal) || state.profile.goal || 'maintain';
+  const targets = targetsForGoal(chosenGoal) || state.targets;
+  const v = variant !== undefined ? variant
+    : state.weekPlan ? state.weekPlan.variant + 1
+    : Math.floor(Math.random() * 10000);
+  state.weekPlan = generateWeekPlan(targets, state.vegOnly, v, chosenGoal, weekStartKey(state.currentDate));
   save();
 }
 
-// A random starting variant gives different users different menus; "New plan"
-// steps deterministically from there so every tap changes the menu.
-$('generateDietPlan').addEventListener('click', () => buildDietPlan(Math.floor(Math.random() * 10000)));
-$('regenDietPlan').addEventListener('click', () => buildDietPlan(state.dietPlan ? state.dietPlan.variant + 1 : 0));
+/** The plan follows the calendar and the veg preference — a new week (or a toggled preference) rebuilds it. */
+function ensureCurrentWeekPlan() {
+  const start = weekStartKey(state.currentDate);
+  if (!state.weekPlan || state.weekPlan.weekStart !== start || state.weekPlan.vegOnly !== !!state.vegOnly) {
+    buildWeekPlan({});
+  }
+}
 
-function logDietMeal(meal) {
+function selectedDayIndex(plan) {
+  if (ui.selectedDay === null) {
+    const todayIndex = plan.days.findIndex(d => d.date === state.currentDate);
+    return todayIndex >= 0 ? todayIndex : 0;
+  }
+  return Math.max(0, Math.min(plan.days.length - 1, ui.selectedDay));
+}
+
+function todaysPlanMeals() {
+  const plan = state.weekPlan;
+  if (!plan) return [];
+  const day = plan.days.find(d => d.date === state.currentDate);
+  if (!day) return [];
+  return day.meals.filter(meal => meal.loggedOn !== state.currentDate);
+}
+
+/** Pushes one planned meal's foods into today's log (no save — callers batch it). */
+function addPlanMealFoods(meal) {
   meal.items.forEach(item => {
     // A plan item carries display-only extras; the food log stores the standard shape.
     const { serving, booster, ...food } = item;
@@ -1567,86 +1619,284 @@ function logDietMeal(meal) {
     pushRecent(food);
   });
   meal.loggedOn = state.currentDate;
-  save();
 }
 
-function renderDiet() {
-  const plan = state.dietPlan;
-  $('generateDietPlan').hidden = !!plan;
-  $('dietIntroNote').hidden = !!plan;
-  $('regenDietPlan').hidden = !plan;
-  $('dietPlanWrap').hidden = !plan;
-  $('dietTargetsLabel').textContent =
-    `${num(state.targets.calories).toLocaleString()} kcal · ${num(state.targets.protein)}g protein target${state.vegOnly ? ' · vegetarian' : ''}`;
-  if (!plan) { $('dietStaleNote').textContent = ''; return; }
+function showPlansView(view) {
+  ui.plansView = view;
+  render();
+  const scroller = document.querySelector('.tab-scroll');
+  if (scroller) scroller.scrollTop = 0;
+}
 
-  const stale = Math.abs(plan.targetCalories - num(state.targets.calories)) > 50 || plan.vegOnly !== !!state.vegOnly;
-  $('dietStaleNote').textContent = stale
-    ? 'Your targets or food preference changed since this plan was made — tap "New plan" to refit it.' : '';
+$('newWeekBtn').addEventListener('click', () => buildWeekPlan({ variant: state.weekPlan ? state.weekPlan.variant + 1 : 0 }));
+$('tileGrocery').addEventListener('click', () => showPlansView('grocery'));
+$('tileAdvice').addEventListener('click', () => showPlansView('advice'));
+$('dayBack').addEventListener('click', () => showPlansView('hub'));
+$('groceryBack').addEventListener('click', () => showPlansView('hub'));
+$('adviceBack').addEventListener('click', () => showPlansView('hub'));
 
-  const totals = planTotals(plan.meals);
-  const summaryDefs = [
-    ['calories', 'Calories', ' kcal', 'var(--accent)'],
-    ['protein', 'Protein', 'g', 'var(--accent2)'],
-    ['carbs', 'Carbs', 'g', 'var(--accent)'],
-    ['fat', 'Fat', 'g', 'var(--fat)'],
-    ['fibre', 'Fibre', 'g', 'var(--accent2)'],
-    ['sugar', 'Sugar', 'g', 'var(--sugar-c)'],
-  ];
-  renderScoreRows('dietSummaryRows', summaryDefs.map(([key, label, unit, color]) => {
-    const goal = Math.max(1, num(state.targets[key]));
-    return {
-      label,
-      value: `${totals[key]}${unit} / ${goal}${unit}`,
-      percent: Math.min(100, Math.round((totals[key] / goal) * 100)),
-      color,
-    };
-  }));
+$('swapDayBtn').addEventListener('click', () => {
+  const plan = state.weekPlan;
+  if (!plan) return;
+  const index = selectedDayIndex(plan);
+  const next = swapDay(plan, index);
+  if (next) { plan.days[index] = next; save(); }
+});
 
-  const wrap = $('dietMeals');
+$('logWholeDay').addEventListener('click', () => {
+  const plan = state.weekPlan;
+  if (!plan) return;
+  const day = plan.days[selectedDayIndex(plan)];
+  day.meals.forEach(addPlanMealFoods);
+  day.loggedOn = state.currentDate;
+  save();
+  $('logDayMessage').textContent = `${day.name}'s meals are in Today — rings, score and Trends all count them.`;
+  setTimeout(() => { $('logDayMessage').textContent = ''; }, 4000);
+});
+
+function renderPlans() {
+  ensureCurrentWeekPlan();
+  const plan = state.weekPlan;
+  const views = { hub: 'planViewHub', day: 'planViewDay', grocery: 'planViewGrocery', advice: 'planViewAdvice' };
+  Object.values(views).forEach(id => { $(id).hidden = true; });
+  const view = views[ui.plansView] || views.hub;
+  $(view).hidden = false;
+  if (view === 'planViewHub') renderPlanHub(plan);
+  else if (view === 'planViewDay') renderPlanDay(plan);
+  else if (view === 'planViewGrocery') renderGrocery(plan);
+  else renderAdvice(plan);
+}
+
+function renderPlanHub(plan) {
+  $('plansEyebrow').textContent = `Personalised${state.vegOnly ? ' · Vegetarian' : ''}`;
+
+  const current = latestWeight(state);
+  const goalW = num(state.profile.goalWeight);
+  const pace = num(state.profile.pace);
+  $('planHero').innerHTML = `
+    <div class="hero-top"><span class="goal-tag">Your goal · ${goalLabelFor(plan.goal)}</span><span class="journey">${current && goalW ? `${current} → ${goalW} kg` : ''}</span></div>
+    <div class="kcal">${plan.targetCalories.toLocaleString()} <small>kcal / day</small></div>
+    <p>${plan.goal !== 'maintain' && pace ? `${pace} kg/week · ` : ''}${plan.targetProtein} g protein target · built from your body profile</p>`;
+
+  const seg = $('goalSeg');
+  seg.replaceChildren();
+  GOALS.forEach(([goal, label]) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = plan.goal === goal ? 'on' : '';
+    btn.textContent = label;
+    btn.addEventListener('click', () => { if (plan.goal !== goal) buildWeekPlan({ goal, variant: plan.variant }); });
+    seg.appendChild(btn);
+  });
+  const profileReady = !!targetsForGoal(plan.goal);
+  $('goalSegNote').hidden = profileReady;
+  if (!profileReady) {
+    $('goalSegNote').textContent = 'Built from your saved daily targets for now — add height & age (More → Profile & body) and a weigh-in to unlock goal-based plans.';
+  }
+
+  $('weekRangeTag').textContent = `${displayDate(plan.weekStart)} – ${displayDate(plan.days[6].date)}`;
+  const strip = $('weekStrip');
+  strip.replaceChildren();
+  const selected = selectedDayIndex(plan);
+  plan.days.forEach((day, i) => {
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = `week-day${i === selected ? ' on' : ''}`;
+    el.innerHTML = `<span>${day.name.slice(0, 3)}</span><strong>${Number(day.date.slice(8))}</strong>`;
+    el.addEventListener('click', () => { ui.selectedDay = i; render(); });
+    strip.appendChild(el);
+  });
+
+  const day = plan.days[selected];
+  const dayTotals = planTotals(day.meals);
+  const first = day.meals[0];
+  const firstTotals = totalsFor(first.items);
+  const preview = $('dayPreviewCard');
+  preview.innerHTML = `
+    <div class="section-head"><span class="card-title">${day.name}</span><span class="highlight small">${Math.round(dayTotals.calories).toLocaleString()} kcal · ${Math.round(dayTotals.protein)} g P</span></div>
+    <div class="meal-card">
+      <div class="meal-top"><div class="l"><span class="meal-dot" style="background:${MEAL_DOTS[first.slotId]}"></span><h3>${first.name}</h3></div><span class="meal-kc">${Math.round(firstTotals.calories)} kcal</span></div>
+      ${first.items.map(i => `<div class="food-row"><span>${i.name}</span><span class="q">${i.quantity}${i.unit}</span></div>`).join('')}
+    </div>`;
+  const openBtn = document.createElement('button');
+  openBtn.type = 'button';
+  openBtn.className = 'chip-button';
+  openBtn.style.alignSelf = 'flex-start';
+  openBtn.textContent = 'Open full day ↓';
+  openBtn.addEventListener('click', () => showPlansView('day'));
+  preview.appendChild(openBtn);
+
+  const avg = weekAverages(plan);
+  $('tileAdviceSub').textContent = avg.protein < plan.targetProtein * 0.9 ? 'close your protein gap' : 'for your goal';
+}
+
+function renderPlanDay(plan) {
+  const day = plan.days[selectedDayIndex(plan)];
+  $('dayEyebrow').textContent = `Weekly plan · ${goalLabelFor(plan.goal)}`;
+  $('dayTitle').textContent = day.name;
+  $('dayTargetTag').textContent = `of ${plan.targetCalories.toLocaleString()} kcal`;
+
+  const t = planTotals(day.meals);
+  $('dayRings').innerHTML = `
+    <div class="ring-preview"><div class="ring" style="--progress:${Math.min(100, Math.round((t.calories / plan.targetCalories) * 100))}%;--ring-color:var(--accent)"><div class="ring-hole"><strong>${Math.round(t.calories).toLocaleString()}</strong><span>kcal</span></div></div><span class="ring-caption">Calories</span></div>
+    <div class="ring-preview"><div class="ring" style="--progress:${Math.min(100, Math.round((t.protein / plan.targetProtein) * 100))}%;--ring-color:var(--accent2)"><div class="ring-hole"><strong>${Math.round(t.protein)}g</strong><span>protein</span></div></div><span class="ring-caption">Protein</span></div>`;
+  $('dayMacbar').innerHTML = [['carbs', 'Carbs'], ['fat', 'Fat'], ['fibre', 'Fibre']]
+    .map(([key, label]) => `<div class="mac"><strong>${Math.round(t[key])}g</strong><span>${label}</span></div>`).join('');
+
+  const wrap = $('dayMeals');
   wrap.replaceChildren();
-  plan.meals.forEach((meal, index) => {
+  day.meals.forEach(meal => {
     const mealTotals = totalsFor(meal.items);
     const card = document.createElement('div');
     card.className = 'card meal-card';
-
-    const head = document.createElement('div');
-    head.className = 'section-head';
-    head.innerHTML = `<div><h2>${meal.name}</h2><p class="muted small">${meal.time} · ${Math.round(mealTotals.calories)} kcal · ${Math.round(mealTotals.protein * 10) / 10}g protein</p></div>`;
-    const swapBtn = document.createElement('button');
-    swapBtn.type = 'button'; swapBtn.className = 'chip-button'; swapBtn.textContent = 'Swap';
-    swapBtn.addEventListener('click', () => {
-      const next = swapMeal(plan, meal.slotId);
-      if (next) { plan.meals[index] = next; save(); }
-    });
-    head.appendChild(swapBtn);
-
-    const list = document.createElement('ul');
-    list.className = 'entry-list';
-    meal.items.forEach(item => {
-      const li = document.createElement('li');
-      const meta = document.createElement('div');
-      meta.className = 'entry-meta';
-      const portion = `${item.quantity}${item.unit}${item.serving ? ` · ${item.serving}` : ''}`;
-      meta.innerHTML = `<strong>${item.name}${item.booster ? '<span class="tag">protein top-up</span>' : ''}</strong><p>${portion} · ${Math.round(num(item.calories))} kcal · ${Math.round(num(item.protein) * 10) / 10}g protein</p>`;
-      li.appendChild(meta);
-      list.appendChild(li);
-    });
-
-    const actions = document.createElement('div');
-    actions.className = 'field-row';
-    const logBtn = document.createElement('button');
-    logBtn.type = 'button';
-    const loggedToday = meal.loggedOn === state.currentDate;
-    logBtn.className = `${loggedToday ? 'btn-outline' : 'btn-primary'} flex1`;
-    logBtn.textContent = loggedToday ? 'Logged today ✓' : 'Log this meal';
-    logBtn.disabled = loggedToday;
-    logBtn.addEventListener('click', () => logDietMeal(meal));
-    actions.appendChild(logBtn);
-
-    card.append(head, list, actions);
+    card.innerHTML = `
+      <div class="meal-top"><div class="l"><span class="meal-dot" style="background:${MEAL_DOTS[meal.slotId]}"></span><h3>${meal.name}</h3><span class="meal-time">${meal.time}</span></div><span class="meal-kc">${Math.round(mealTotals.calories)} · ${Math.round(mealTotals.protein)}g P</span></div>
+      ${meal.items.map(i => `<div class="food-row"><span>${i.name}${i.booster ? '<span class="tp">protein top-up</span>' : ''}</span><span class="q">${i.quantity}${i.unit}${i.serving ? ` (${i.serving})` : ''}</span></div>`).join('')}`;
     wrap.appendChild(card);
   });
+
+  const logged = day.loggedOn === state.currentDate;
+  const btn = $('logWholeDay');
+  btn.disabled = logged;
+  btn.className = logged ? 'btn-outline' : 'btn-primary';
+  btn.textContent = logged ? 'Logged into Today ✓' : 'Log this whole day ✓';
+}
+
+function renderGrocery(plan) {
+  $('groceryEyebrow').textContent = `Auto-built · ${displayDate(plan.weekStart)} – ${displayDate(plan.days[6].date)}`;
+  const groups = groceryList(plan);
+  const itemCount = groups.reduce((total, group) => total + group.items.length, 0);
+  $('grocerySummary').innerHTML = `
+    <div class="b"><strong>${itemCount}</strong><span>Items</span></div>
+    <div class="b"><strong>1</strong><span>Person</span></div>
+    <div class="b"><strong>7</strong><span>Days</span></div>`;
+
+  const wrap = $('groceryCats');
+  wrap.replaceChildren();
+  groups.forEach(group => {
+    const head = document.createElement('div');
+    head.className = 'gcat-head';
+    head.textContent = `${group.emoji} ${group.label}`;
+    wrap.appendChild(head);
+    group.items.forEach(item => {
+      const row = document.createElement('div');
+      row.className = `grocery-item${state.pantry[item.key] ? ' done' : ''}`;
+      row.innerHTML = `<span class="gbox"></span><span class="nm">${item.name}</span><span class="q">${item.display}</span>`;
+      row.addEventListener('click', () => {
+        if (state.pantry[item.key]) delete state.pantry[item.key];
+        else state.pantry[item.key] = true;
+        save();
+      });
+      wrap.appendChild(row);
+    });
+  });
+}
+
+$('copyGrocery').addEventListener('click', async () => {
+  const plan = state.weekPlan;
+  if (!plan) return;
+  const lines = [`Grocery list · ${displayDate(plan.weekStart)} – ${displayDate(plan.days[6].date)}`, ''];
+  groceryList(plan).forEach(group => {
+    lines.push(`${group.label}:`);
+    group.items.forEach(item => lines.push(`${state.pantry[item.key] ? '✓' : '•'} ${item.name} — ${item.display}`));
+    lines.push('');
+  });
+  try {
+    await navigator.clipboard.writeText(lines.join('\n').trim());
+    $('copyMessage').textContent = 'Copied — paste it anywhere.';
+  } catch {
+    $('copyMessage').textContent = 'Copying is blocked in this browser — select the list and copy manually.';
+  }
+  setTimeout(() => { $('copyMessage').textContent = ''; }, 3000);
+});
+
+function renderAdvice(plan) {
+  $('adviceEyebrow').textContent = `For your goal · ${goalLabelFor(plan.goal)}`;
+
+  const current = latestWeight(state);
+  const goalW = num(state.profile.goalWeight);
+  const pace = Math.max(0.1, num(state.profile.pace));
+  if (current && goalW && Math.abs(current - goalW) > 0.1) {
+    const left = Math.round(Math.abs(current - goalW) * 10) / 10;
+    $('adviceBanner').innerHTML = `<span class="banner-ic">🎯</span><div><strong>${left} kg from goal</strong><p>At ${pace} kg/week, ~${Math.round(left / pace)} weeks. These add-ons make it stick.</p></div>`;
+  } else {
+    $('adviceBanner').innerHTML = `<span class="banner-ic">🎯</span><div><strong>Consistency wins</strong><p>Set a goal weight in More → Profile & body to see your timeline here.</p></div>`;
+  }
+
+  const avg = weekAverages(plan);
+  const cards = [];
+  if (avg.protein < plan.targetProtein * 0.9) {
+    cards.push(['🥜', 'Mind the protein gap', `The plan delivers ~${Math.round(avg.protein)} g vs a ${plan.targetProtein} g target. Add curd, soya chunks or a whey scoop to close it.`]);
+  } else {
+    cards.push(['🥜', 'Protein is on track', `The week averages ~${Math.round(avg.protein)} g against your ${plan.targetProtein} g target — nice.`]);
+  }
+  cards.push(['💧', 'Hydration first', `Aim ${num(state.targets.water)} L/day — ${plan.goal === 'lose' ? 'on a deficit, thirst often reads as hunger' : 'most hunger dips are really thirst'}.`]);
+  cards.push(['🚶', 'Move to unlock food', `Hit ${num(state.activityTargets.steps).toLocaleString()} steps and there's room for a ~150 kcal snack on top of the plan.`]);
+  $('adviceCards').innerHTML = cards
+    .map(([icon, title, body]) => `<div class="card"><div class="adv-card"><div class="adv-ic">${icon}</div><div><h3>${title}</h3><p>${body}</p></div></div></div>`)
+    .join('');
+}
+
+$('retuneFromWeighIn').addEventListener('click', () => {
+  const goal = state.weekPlan ? state.weekPlan.goal : state.profile.goal;
+  const computed = targetsForGoal(goal);
+  if (!computed) {
+    $('adviceMessage').textContent = 'Fill height & age (More → Profile & body) and log a weigh-in first.';
+    setTimeout(() => { $('adviceMessage').textContent = ''; }, 4000);
+    return;
+  }
+  // Aligns the daily targets (Today's rings) with the freshly-computed plan.
+  state.targets = computed;
+  buildWeekPlan({ goal });
+  $('adviceMessage').textContent = `Targets retuned to ${latestWeight(state)} kg and the week rebuilt.`;
+  setTimeout(() => { $('adviceMessage').textContent = ''; }, 4000);
+});
+
+// ---------- More tab ----------
+
+function moreRow({ icon, title, sub, pill, danger, onTap }) {
+  const row = document.createElement('button');
+  row.type = 'button';
+  row.className = `more-row${danger ? ' danger' : ''}`;
+  row.innerHTML = `<span class="mic">${icon}</span><div class="mtx"><strong>${title}</strong><span>${sub}</span></div>${pill ? `<span class="pill${pill.on ? '' : ' off'}">${pill.label}</span>` : '<span class="chev">›</span>'}`;
+  row.addEventListener('click', onTap);
+  return row;
+}
+
+function renderMore() {
+  $('moreEyebrow').textContent = state.displayName || (currentUser && currentUser.email) || '';
+  const menu = $('moreMenu');
+  menu.replaceChildren();
+  const group = label => {
+    const p = document.createElement('p');
+    p.className = 'more-group';
+    p.textContent = label;
+    menu.appendChild(p);
+  };
+
+  group('Tracking');
+  menu.appendChild(moreRow({ icon: '🔥', title: 'Activity', sub: 'Steps, burn & exercise', onTap: () => showTab('activity') }));
+  menu.appendChild(moreRow({ icon: '🍲', title: 'Meals', sub: `Meal presets · ${state.mealPresets.length}`, onTap: () => showTab('meals') }));
+
+  group('Setup');
+  const current = latestWeight(state);
+  const goalW = num(state.profile.goalWeight);
+  menu.appendChild(moreRow({
+    icon: '👤', title: 'Profile & body',
+    sub: `Goal · ${goalLabelFor(state.profile.goal)}${current && goalW ? ` · ${current}→${goalW} kg` : ''}`,
+    onTap: () => showTab('profile'),
+  }));
+  menu.appendChild(moreRow({
+    icon: '🥗', title: 'Food preferences', sub: 'Vegetarian only',
+    pill: { on: !!state.vegOnly, label: state.vegOnly ? 'On' : 'Off' },
+    onTap: () => { state.vegOnly = !state.vegOnly; save(); },
+  }));
+  menu.appendChild(moreRow({
+    icon: '🎨', title: 'Appearance', sub: 'Theme',
+    pill: { on: resolvedTheme() === 'dark', label: resolvedTheme() === 'dark' ? 'Dark' : 'Light' },
+    onTap: () => { state.theme = resolvedTheme() === 'dark' ? 'light' : 'dark'; state.themeChosen = true; applyTheme(); save(); },
+  }));
+  menu.appendChild(moreRow({ icon: '⏻', title: 'Sign out', sub: (currentUser && currentUser.email) || '', danger: true, onTap: () => signOutUser() }));
 }
 
 // ---------- Derived data + full render ----------
@@ -1710,7 +1960,8 @@ function render() {
   renderWeight(derived);
   renderActivity(derived);
   renderMeals();
-  renderDiet();
+  renderPlans();
+  renderMore();
   renderProfile();
   renderNav();
   checkAndFireAlerts(derived);
