@@ -343,6 +343,7 @@
         </section>
 
         <section id="tabActivity" class="tab-panel" data-tab="activity" hidden>
+          <button id="backMoreActivity" type="button" class="chip-button back-more">‹ More</button>
           <div class="card">
             <div class="section-head"><h2>Today's activity</h2><button id="syncDevice" class="chip-button" type="button">Sync now</button></div>
             <p id="syncMessage" class="form-message"></p>
@@ -384,6 +385,7 @@
         </section>
 
         <section id="tabMeals" class="tab-panel" data-tab="meals" hidden>
+          <button id="backMoreMeals" type="button" class="chip-button back-more">‹ More</button>
           <form id="presetForm" class="card">
             <h2>Create a meal preset</h2>
             <p class="muted small">Pick the meal, add the foods in it (e.g. Breakfast: Poha + Tea), and save the combination — its full nutrition gets logged in one tap.</p>
@@ -435,6 +437,7 @@
         </section>
 
         <section id="tabProfile" class="tab-panel" data-tab="profile" hidden>
+          <button id="backMoreProfile" type="button" class="chip-button back-more">‹ More</button>
           <div class="card profile-card">
             <div class="profile-avatar" id="profileAvatarWrap">
               <img id="profileAvatarImg" alt="" hidden>
@@ -499,15 +502,6 @@
             <button id="saveTargets" type="submit" class="btn-primary">Save targets</button>
           </form>
 
-          <div class="card">
-            <h2>Food preferences</h2>
-            <div class="section-head">
-              <span>Vegetarian only</span>
-              <button id="vegToggle" class="theme-switch" type="button"><span class="theme-knob"></span></button>
-            </div>
-            <p class="muted small">When on, food suggestions and the picker hide non-vegetarian items.</p>
-          </div>
-
           <div id="adminCard" class="card" hidden>
             <div class="section-head">
               <h2>Food bank — pending review</h2>
@@ -544,18 +538,6 @@
             <div class="field-row">
               <button id="downloadBackup" type="button" class="chip-button flex1">Export</button>
               <label class="chip-button as-label flex1">Import<input id="restoreFile" type="file" accept="application/json" hidden></label>
-            </div>
-          </div>
-
-          <div class="card">
-            <h2>Appearance</h2>
-            <div class="section-head">
-              <span>Dark mode</span>
-              <button id="themeToggle" class="theme-switch" type="button"><span class="theme-knob"></span></button>
-            </div>
-            <div class="section-head">
-              <p id="themeModeNote" class="muted small"></p>
-              <button id="themeAuto" type="button" class="chip-button" hidden>Use device setting</button>
             </div>
           </div>
 

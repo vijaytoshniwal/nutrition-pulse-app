@@ -228,7 +228,7 @@ function renderNav() {
     // Activity, Meals and Profile live behind the More menu, so More stays lit while they're open.
     const active = ui.tab === item.id || (item.id === 'more' && MORE_TABS.includes(ui.tab));
     btn.className = `nav-item${active ? ' active' : ''}`;
-    btn.innerHTML = `<span class="nav-icon"></span><span class="nav-label">${item.label}</span>`;
+    btn.innerHTML = `<span class="nav-icon">${item.icon}</span><span class="nav-label">${item.label}</span>`;
     btn.addEventListener('click', () => showTab(item.id));
     nav.appendChild(btn);
   });
@@ -1315,20 +1315,6 @@ $('restoreFile').addEventListener('change', async event => {
   }
 });
 
-$('themeToggle').addEventListener('click', () => {
-  state.theme = resolvedTheme() === 'dark' ? 'light' : 'dark';
-  state.themeChosen = true;
-  applyTheme();
-  save();
-});
-
-$('themeAuto').addEventListener('click', () => {
-  state.theme = 'auto';
-  state.themeChosen = true;
-  applyTheme();
-  save();
-});
-
 $('alertsToggle').addEventListener('click', async () => {
   if (!state.alertsEnabled) {
     // Alerts always work as in-app banners; system notifications are a bonus
@@ -1347,11 +1333,6 @@ $('alertsToggle').addEventListener('click', async () => {
     state.alertsEnabled = false;
     $('alertsMessage').textContent = '';
   }
-  save();
-});
-
-$('vegToggle').addEventListener('click', () => {
-  state.vegOnly = !state.vegOnly;
   save();
 });
 
@@ -1493,11 +1474,7 @@ function renderProfile() {
   renderBMI();
 
   applyTheme();
-  $('themeToggle').classList.toggle('on', resolvedTheme() === 'dark');
   $('alertsToggle').classList.toggle('on', !!state.alertsEnabled);
-  $('vegToggle').classList.toggle('on', !!state.vegOnly);
-  $('themeModeNote').textContent = state.theme === 'auto' ? 'Following your device setting.' : `Fixed to ${state.theme} mode.`;
-  $('themeAuto').hidden = state.theme === 'auto';
   renderWatchSyncInstructions();
   $('adminCard').hidden = !isAdmin();
   $('adminFoodBankCard').hidden = !isAdmin();
@@ -1863,6 +1840,11 @@ function moreRow({ icon, title, sub, pill, danger, onTap }) {
   return row;
 }
 
+// The tabs that live behind More each carry a "‹ More" chip to step back to the menu.
+['backMoreActivity', 'backMoreMeals', 'backMoreProfile'].forEach(id => {
+  $(id).addEventListener('click', () => showTab('more'));
+});
+
 function renderMore() {
   $('moreEyebrow').textContent = state.displayName || (currentUser && currentUser.email) || '';
   const menu = $('moreMenu');
@@ -1891,10 +1873,17 @@ function renderMore() {
     pill: { on: !!state.vegOnly, label: state.vegOnly ? 'On' : 'Off' },
     onTap: () => { state.vegOnly = !state.vegOnly; save(); },
   }));
+  // Cycles Light → Dark → Auto; Auto follows the phone's light/dark setting live.
   menu.appendChild(moreRow({
-    icon: '🎨', title: 'Appearance', sub: 'Theme',
-    pill: { on: resolvedTheme() === 'dark', label: resolvedTheme() === 'dark' ? 'Dark' : 'Light' },
-    onTap: () => { state.theme = resolvedTheme() === 'dark' ? 'light' : 'dark'; state.themeChosen = true; applyTheme(); save(); },
+    icon: '🎨', title: 'Appearance',
+    sub: state.theme === 'auto' ? `Following your phone setting (${resolvedTheme()})` : 'Tap to switch — Light · Dark · Auto',
+    pill: { on: state.theme !== 'auto', label: state.theme === 'auto' ? 'Auto' : state.theme === 'dark' ? 'Dark' : 'Light' },
+    onTap: () => {
+      state.theme = state.theme === 'auto' ? 'light' : state.theme === 'light' ? 'dark' : 'auto';
+      state.themeChosen = state.theme !== 'auto';
+      applyTheme();
+      save();
+    },
   }));
   menu.appendChild(moreRow({ icon: '⏻', title: 'Sign out', sub: (currentUser && currentUser.email) || '', danger: true, onTap: () => signOutUser() }));
 }
