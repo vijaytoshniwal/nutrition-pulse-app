@@ -12,7 +12,7 @@ import { comparableQuantity, calculateFood, findFoodByPhotoHash, searchFoods, sc
 import { computeImageHash, isSimilarPhoto } from './src/image-hash.js';
 import { checkPaceAlerts, notificationsSupported, requestNotificationPermission, fireNotification } from './src/alerts.js';
 import { isBarcodeScanSupported, scanBarcodeFromCamera, lookupBarcode } from './src/barcode.js';
-import { watchAuthState, signIn, signUp, signOutUser, resetPassword, loadCloudState, saveCloudState, submitFoodForReview, fetchActivitySync, isAdmin, fetchPendingFoods, approvePendingFood, rejectPendingFood, FIREBASE_PROJECT_ID } from './src/firebase-sync.js';
+import { watchAuthState, signIn, signUp, signOutUser, resetPassword, loadCloudState, saveCloudState, submitFoodForReview, fetchActivitySync, isAdmin, fetchPendingFoods, approvePendingFood, rejectPendingFood, fetchFoodBank, FIREBASE_PROJECT_ID } from './src/firebase-sync.js';
 import { recognizeTextInImage, parseActivityFromText } from './src/activity-ocr.js';
 
 /** Mobile browsers report 100vh as if the address bar were hidden, so measure the
@@ -27,6 +27,39 @@ if (window.visualViewport) window.visualViewport.addEventListener('resize', sync
 
 let state = loadLocalState();
 let currentUser = null;
+// The shared food bank, fetched once after sign-in so approved foods can show
+// up in search suggestions (see loadFoodBankCache / suggestExtras).
+let foodBankCache = [];
+
+async function loadFoodBankCache() {
+  foodBankCache = await fetchFoodBank();
+}
+
+/** Turns a saved/bank food ({name, baseQuantity, per-portion nutrients}) into a FOOD_DB-shaped suggestion item. */
+function toSuggestItem(food, source) {
+  const base = num(food.baseQuantity) > 0 ? num(food.baseQuantity) : 100;
+  const per100 = n => (food[n] == null ? 0 : Math.round((num(food[n]) * 100 / base) * 10) / 10);
+  return { n: food.name, a: '', k: per100('calories'), sg: Math.round(base), sl: `${Math.round(base)} g`, v: 1, source };
+}
+
+/** The user's own saved foods and the shared bank, deduped (own wins), for the suggestion list. */
+function suggestExtras() {
+  const items = [];
+  const seen = new Set();
+  Object.values(state.customFoods || {}).forEach(food => {
+    if (!food || !food.name) return;
+    seen.add(foodKey(food.name));
+    items.push(toSuggestItem(food, 'custom'));
+  });
+  foodBankCache.forEach(food => {
+    if (!food || !food.name) return;
+    const key = foodKey(food.name);
+    if (seen.has(key)) return;
+    seen.add(key);
+    items.push(toSuggestItem(food, 'bank'));
+  });
+  return items;
+}
 
 // 'auto' theme follows the device's light/dark preference live.
 const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
@@ -449,14 +482,15 @@ function attachFoodSuggest(inputId, listId, onPick) {
   function close() { list.hidden = true; list.replaceChildren(); }
 
   function render() {
-    items = searchFoods(input.value, state.vegOnly);
+    items = searchFoods(input.value, state.vegOnly, 8, suggestExtras());
     if (!items.length) { close(); return; }
     list.replaceChildren();
     items.forEach(item => {
+      const tag = item.source === 'custom' ? ' · your food' : item.source === 'bank' ? ' · shared' : '';
       const li = document.createElement('li');
       li.innerHTML = `
         <span class="suggest-name"><span class="suggest-veg ${item.v ? 'veg' : 'nonveg'}"></span>${item.n}</span>
-        <span class="suggest-meta">${item.k} kcal · ${item.sl}</span>`;
+        <span class="suggest-meta">${item.k} kcal · ${item.sl}${tag}</span>`;
       li.addEventListener('mousedown', event => { event.preventDefault(); onPick(item); close(); });
       list.appendChild(li);
     });
@@ -472,6 +506,9 @@ attachFoodSuggest('foodName', 'foodSuggestions', item => {
   $('foodName').value = item.n;
   $('foodQuantity').value = item.sg;
   $('foodUnit').value = 'g';
+  // Your own / shared-bank foods resolve through the normal lookup so their
+  // saved per-portion values (and any blank nutrients) are used correctly.
+  if (item.source) { $('calculateFood').click(); return; }
   setFoodValues(scaleFoodDbItem(item, item.sg / 100));
   ui.form.manualMode = false;
   setNutrientEditing(false);
@@ -946,6 +983,9 @@ attachFoodSuggest('presetItemName', 'presetSuggestions', item => {
   $('presetItemName').value = item.n;
   $('presetItemQuantity').value = item.sg;
   $('presetItemUnit').value = 'g';
+  // Your own / shared-bank foods resolve through the normal lookup so their
+  // saved per-portion values (and any blank nutrients) are used correctly.
+  if (item.source) { $('presetCalculate').click(); return; }
   setPresetGridValues(scaleFoodDbItem(item, item.sg / 100));
   ui.presetItemManual = false;
   showPresetGrid();
@@ -1576,6 +1616,7 @@ watchAuthState(async user => {
     setTimeout(() => { $('profileMessage').textContent = ''; }, 8000);
   }
   applyActivitySync({ silent: true });
+  loadFoodBankCache();
   if (isAdmin()) renderPendingFoods();
 });
 
