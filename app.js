@@ -175,9 +175,9 @@ $('scoreButton').addEventListener('click', () => showTab('trends'));
 function showTab(tab) {
   ui.tab = tab;
   document.querySelectorAll('.tab-panel').forEach(panel => { panel.hidden = panel.dataset.tab !== tab; });
-  // The + button is redundant on the Log tab (it opens Log) and floats over
-  // the form buttons on the Meals tab, so it hides on both.
-  $('fabLog').hidden = tab === 'log' || tab === 'meals';
+  // The + button only makes sense on the Today tab, where it opens the food
+  // log. It's hidden everywhere else (Profile, Weight, Trends, etc.).
+  $('fabLog').hidden = tab !== 'today';
   renderNav();
   const scroller = document.querySelector('.tab-scroll');
   if (scroller) scroller.scrollTop = 0;
