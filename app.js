@@ -6,7 +6,7 @@ import {
 } from './src/state.js';
 import {
   computeStreak, weeklyData, weeklyScoreParts, gradeForScore, sparklineData,
-  latestWeight, idealWeightRange, computeTargetsFromProfile, weightBarData, weightJourney, computeWeightForecast,
+  latestWeight, idealWeightRange, computeBMI, computeTargetsFromProfile, weightBarData, weightJourney, computeWeightForecast,
 } from './src/calculations.js';
 import { comparableQuantity, calculateFood, findFoodByPhotoHash, searchFoods, scaleFoodDbItem, parseNutritionFromText } from './src/food-lookup.js';
 import { computeImageHash, isSimilarPhoto } from './src/image-hash.js';
@@ -1373,6 +1373,8 @@ function renderProfile() {
     fields.appendChild(wrap);
   });
 
+  renderBMI();
+
   applyTheme();
   $('themeToggle').classList.toggle('on', resolvedTheme() === 'dark');
   $('alertsToggle').classList.toggle('on', !!state.alertsEnabled);
@@ -1381,6 +1383,38 @@ function renderProfile() {
   $('themeAuto').hidden = state.theme === 'auto';
   renderWatchSyncInstructions();
   $('adminCard').hidden = !isAdmin();
+}
+
+function renderBMI() {
+  const bmi = computeBMI(state.profile, latestWeight(state));
+  const card = $('bmiCard');
+  if (!bmi) {
+    card.hidden = false;
+    $('bmiValue').textContent = '—';
+    $('bmiCategory').textContent = 'Add height & weight';
+    $('bmiCategory').dataset.tone = '';
+    $('bmiAdvice').textContent = 'Enter your height above and log a weigh-in on the Weight tab to see your BMI.';
+    return;
+  }
+  card.hidden = false;
+  $('bmiValue').textContent = bmi.value;
+  $('bmiCategory').textContent = bmi.category;
+  $('bmiCategory').dataset.tone = bmi.tone;
+
+  const range = idealWeightRange(state.profile);
+  let advice = 'A healthy BMI is between 18.5 and 24.9.';
+  if (range) {
+    advice = `A healthy BMI is 18.5–24.9, which for your height is about ${range.min}–${range.max} kg (ideal around ${range.target} kg).`;
+    const current = latestWeight(state);
+    if (bmi.tone === 'high') {
+      advice += ` You're about ${Math.round((current - range.max) * 10) / 10} kg above the healthy range.`;
+    } else if (bmi.tone === 'low') {
+      advice += ` You're about ${Math.round((range.min - current) * 10) / 10} kg below the healthy range.`;
+    } else {
+      advice += ` You're within the healthy range — nice work.`;
+    }
+  }
+  $('bmiAdvice').textContent = advice;
 }
 
 function renderWatchSyncInstructions() {
