@@ -134,6 +134,12 @@ export async function rejectPendingFood(key) {
   await deleteDoc(doc(db, 'foodBankPending', key));
 }
 
+/** Removes an already-approved food from the shared bank (e.g. wrongly entered/approved). */
+export async function deleteFoodBankEntry(key) {
+  if (!isAdmin()) return;
+  await deleteDoc(doc(db, 'foodBank', key));
+}
+
 /**
  * Activity synced from outside the app: an iPhone Shortcut PATCHes a doc in
  * the activityInbox collection via the Firestore REST API, addressed by a
