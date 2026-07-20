@@ -12,7 +12,7 @@ import { comparableQuantity, calculateFood, findFoodByPhotoHash, searchFoods, sc
 import { computeImageHash, isSimilarPhoto } from './src/image-hash.js';
 import { checkPaceAlerts, notificationsSupported, requestNotificationPermission, fireNotification } from './src/alerts.js';
 import { isBarcodeScanSupported, scanBarcodeFromCamera, lookupBarcode } from './src/barcode.js';
-import { watchAuthState, signIn, signUp, signOutUser, resetPassword, loadCloudState, saveCloudState, submitFoodForReview, fetchActivitySync, isAdmin, fetchPendingFoods, approvePendingFood, rejectPendingFood, fetchFoodBank, FIREBASE_PROJECT_ID } from './src/firebase-sync.js';
+import { watchAuthState, signIn, signUp, signOutUser, resetPassword, loadCloudState, saveCloudState, submitFoodForReview, fetchActivitySync, isAdmin, fetchPendingFoods, approvePendingFood, rejectPendingFood, fetchFoodBank, deleteFoodBankEntry, FIREBASE_PROJECT_ID } from './src/firebase-sync.js';
 import { recognizeTextInImage, parseActivityFromText } from './src/activity-ocr.js';
 
 /** Mobile browsers report 100vh as if the address bar were hidden, so measure the
@@ -1339,6 +1339,36 @@ $('vegToggle').addEventListener('click', () => {
 // ---------- Admin: food bank moderation ----------
 
 $('refreshPending').addEventListener('click', renderPendingFoods);
+$('refreshFoodBank').addEventListener('click', renderFoodBank);
+
+/** Admin-only: lists every approved shared food with a Delete button. */
+async function renderFoodBank() {
+  if (!isAdmin()) { $('adminFoodBankCard').hidden = true; return; }
+  $('adminFoodBankCard').hidden = false;
+  const foods = (await fetchFoodBank()).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  $('noFoodBankNote').hidden = foods.length > 0;
+  const list = $('foodBankList');
+  list.replaceChildren();
+  foods.forEach(entry => {
+    const li = document.createElement('li');
+    const meta = document.createElement('div');
+    meta.className = 'entry-meta';
+    meta.innerHTML = `<strong>${entry.name}</strong><p>${Math.round(num(entry.calories))} kcal · ${Math.round(num(entry.protein) * 10) / 10}g protein · per ${entry.baseQuantity || 100}g${entry.approvedBy ? ` · approved by ${entry.approvedBy}` : ''}</p>`;
+    const actions = document.createElement('div');
+    actions.className = 'entry-actions';
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button'; deleteBtn.className = 'delete-btn'; deleteBtn.textContent = 'Delete';
+    deleteBtn.addEventListener('click', async () => {
+      if (!confirm(`Delete "${entry.name}" from the shared food bank? This removes it for everyone.`)) return;
+      await deleteFoodBankEntry(entry.key);
+      await loadFoodBankCache();
+      renderFoodBank();
+    });
+    actions.append(deleteBtn);
+    li.append(meta, actions);
+    list.appendChild(li);
+  });
+}
 
 async function renderPendingFoods() {
   if (!isAdmin()) { $('adminCard').hidden = true; return; }
@@ -1356,7 +1386,7 @@ async function renderPendingFoods() {
     actions.className = 'entry-actions';
     const approveBtn = document.createElement('button');
     approveBtn.type = 'button'; approveBtn.className = 'edit-btn'; approveBtn.textContent = 'Approve';
-    approveBtn.addEventListener('click', async () => { await approvePendingFood(entry.key, entry); renderPendingFoods(); });
+    approveBtn.addEventListener('click', async () => { await approvePendingFood(entry.key, entry); renderPendingFoods(); loadFoodBankCache(); renderFoodBank(); });
     const rejectBtn = document.createElement('button');
     rejectBtn.type = 'button'; rejectBtn.className = 'delete-btn'; rejectBtn.textContent = 'Reject';
     rejectBtn.addEventListener('click', async () => { await rejectPendingFood(entry.key); renderPendingFoods(); });
@@ -1423,6 +1453,7 @@ function renderProfile() {
   $('themeAuto').hidden = state.theme === 'auto';
   renderWatchSyncInstructions();
   $('adminCard').hidden = !isAdmin();
+  $('adminFoodBankCard').hidden = !isAdmin();
 }
 
 function renderBMI() {
@@ -1617,7 +1648,7 @@ watchAuthState(async user => {
   }
   applyActivitySync({ silent: true });
   loadFoodBankCache();
-  if (isAdmin()) renderPendingFoods();
+  if (isAdmin()) { renderPendingFoods(); renderFoodBank(); }
 });
 
 $('appVersion').textContent = `Version ${APP_VERSION}`;
