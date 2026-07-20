@@ -85,6 +85,20 @@ export async function fetchFoodBankEntry(key) {
 }
 
 /**
+ * The whole shared food bank, fetched once after sign-in so approved foods can
+ * appear in the search suggestions (not just when their exact name is typed).
+ */
+export async function fetchFoodBank() {
+  if (!auth.currentUser) return [];
+  try {
+    const snapshot = await getDocs(collection(db, 'foodBank'));
+    return snapshot.docs.map(d => ({ key: d.id, ...d.data() }));
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Every user-entered food — including the admin's own — goes to a moderation
  * queue (foodBankPending) first, never straight into the shared bank, so
  * every entry gets the same review before it becomes everyone's default.
