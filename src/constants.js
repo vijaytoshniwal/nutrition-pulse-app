@@ -1,5 +1,5 @@
 /** Shown on the sign-in screen; keep in step with the cache version in sw.js. */
-export const APP_VERSION = '2.27';
+export const APP_VERSION = '2.28';
 
 export const NUTRIENTS = ['calories', 'protein', 'carbs', 'fat', 'fibre', 'sugar'];
 
@@ -58,10 +58,11 @@ export const FOOD_PICKS = [
 
 export const NAV_ITEMS = [
   { id: 'today', label: 'Today' },
-  { id: 'diet', label: 'Diet' },
   { id: 'trends', label: 'Trends' },
-  { id: 'activity', label: 'Activity' },
+  { id: 'plans', label: 'Plans' },
   { id: 'weight', label: 'Weight' },
-  { id: 'meals', label: 'Meals' },
-  { id: 'profile', label: 'Profile' },
+  { id: 'more', label: 'More' },
 ];
+
+/** Tabs that live behind the More menu — nav highlights More while they're open. */
+export const MORE_TABS = ['more', 'activity', 'meals', 'profile'];
