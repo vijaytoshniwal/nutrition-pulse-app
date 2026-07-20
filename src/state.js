@@ -23,6 +23,7 @@ export function freshState() {
     avatar: '',
     displayName: '',
     mealPresets: [],
+    dietPlan: null,
     alertsEnabled: false,
     lastAlertDate: {},
     healthSyncToken: '',
@@ -45,6 +46,7 @@ export function normalizeState(data) {
   state.weights = Array.isArray(state.weights) ? state.weights : [];
   state.customFoods = state.customFoods || {};
   state.mealPresets = Array.isArray(state.mealPresets) ? state.mealPresets : [];
+  state.dietPlan = state.dietPlan && Array.isArray(state.dietPlan.meals) ? state.dietPlan : null;
   state.lastAlertDate = state.lastAlertDate || {};
   state.currentDate = state.currentDate || dayKey();
   // Follow the device's light/dark setting unless the user explicitly picked a theme.
