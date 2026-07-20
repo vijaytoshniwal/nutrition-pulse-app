@@ -73,20 +73,31 @@ export function scaleFoodDbItem(item, factor) {
   };
 }
 
-/** Search-as-you-type over the built-in database, optionally vegetarian-only. */
-export function searchFoods(query, vegOnly = false, limit = 8) {
+/**
+ * Search-as-you-type, optionally vegetarian-only. `extra` holds the user's own
+ * saved foods and the shared food bank (already normalized to the FOOD_DB item
+ * shape with a `source` tag); they're searched alongside the built-in database
+ * and ranked slightly ahead, and dedup by name so a bank/custom food hides any
+ * same-named built-in entry.
+ */
+export function searchFoods(query, vegOnly = false, limit = 8, extra = []) {
   const q = query.trim().toLowerCase();
   if (q.length < 2) return [];
   const scored = [];
-  for (const item of FOOD_DB) {
+  const seen = new Set();
+  for (const item of [...extra, ...FOOD_DB]) {
     if (vegOnly && item.v !== 1) continue;
     const name = item.n.toLowerCase();
+    if (seen.has(name)) continue;
     const aliases = (item.a || '').toLowerCase();
     let score = 0;
     if (name.startsWith(q)) score = 3;
     else if (name.includes(q)) score = 2;
     else if (aliases.includes(q)) score = 1;
-    if (score) scored.push({ item, score });
+    if (!score) continue;
+    seen.add(name);
+    // Nudge the user's own / shared foods above equally-scored built-ins.
+    scored.push({ item, score: score + (item.source ? 0.5 : 0) });
   }
   scored.sort((a, b) => b.score - a.score || a.item.n.length - b.item.n.length);
   return scored.slice(0, limit).map(entry => entry.item);
