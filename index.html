@@ -130,6 +130,10 @@
               <div><p class="eyebrow" id="plansEyebrow">Personalised</p><h1 class="tab-title">Diet Plans</h1></div>
               <button id="newWeekBtn" type="button" class="chip-button">New week ↻</button>
             </div>
+            <div id="planModeSeg" class="seg plan-mode-seg">
+              <button id="modeAutoBtn" type="button" class="on">Auto plan<small>generated for you</small></button>
+              <button id="modeMineBtn" type="button">My plan<small>you compose it</small></button>
+            </div>
             <div id="planHero" class="plan-hero"></div>
             <div id="goalSeg" class="seg"></div>
             <p id="goalSegNote" class="muted micro-note" hidden></p>
@@ -184,6 +188,60 @@
             <button id="retuneFromWeighIn" type="button" class="btn-primary">Regenerate from latest weigh-in</button>
             <p id="adviceMessage" class="form-message"></p>
             <p class="muted micro-note" style="text-align:center">General guidance, not medical advice.</p>
+          </div>
+
+          <div id="planViewMine" hidden>
+            <div class="plan-subhead">
+              <button id="mineBack" type="button" class="chip-button">‹ Plan</button>
+              <div class="plan-subtitle"><p class="eyebrow" id="mineEyebrow">My plan</p><h2 id="mineTitle">Monday</h2></div>
+              <button id="mineLogDay" type="button" class="chip-button">Log day ✓</button>
+            </div>
+            <div class="card tight-card">
+              <div class="section-head"><span class="card-title">Day vs targets</span><span class="tag">live</span></div>
+              <div id="mineMeter"></div>
+              <p id="mineStat" class="mine-stat"></p>
+            </div>
+            <div class="card tight-card">
+              <div class="section-head"><span class="card-title">This week</span><span class="tag" id="mineWeekTag"></span></div>
+              <div id="mineWeekStrip" class="week-strip"></div>
+            </div>
+            <div id="mineMealTabs" class="seg"></div>
+            <div class="card tight-card">
+              <div id="mineMealList"></div>
+              <p id="mineEmptyNote" class="muted small empty-note">No foods yet — search below to add them.</p>
+            </div>
+            <p class="muted small mine-adding-note">Adding to <strong id="mineMealName" class="highlight">Breakfast</strong></p>
+            <div class="suggest-wrap">
+              <input id="mineFoodName" type="text" placeholder="Type to search your food bank…" autocomplete="off">
+              <ul id="mineSuggest" class="suggest-list" hidden></ul>
+            </div>
+            <div class="field-row">
+              <input id="mineQty" type="number" min="1" step="1" value="100" placeholder="Qty">
+              <select id="mineUnit">
+                <option value="g">grams</option>
+                <option value="ml">millilitres</option>
+                <option value="pieces">pieces</option>
+              </select>
+              <button id="mineAddBtn" type="button" class="btn-primary mine-add">Add</button>
+            </div>
+            <p id="mineStatus" class="form-message"></p>
+            <div id="mineManualWrap" class="card tight-card" hidden>
+              <div class="section-head"><span class="card-title" id="mineManualTitle">New food — enter nutrition</span></div>
+              <p class="muted small">Values are for the quantity you entered above. The food saves to your foods for reuse anywhere, and goes for review to join the shared bank.</p>
+              <div class="nutrient-grid">
+                <label>Calories<input id="mineCalories" type="number" min="0" step="1"></label>
+                <label>Protein (g)<input id="mineProtein" type="number" min="0" step="0.1"></label>
+                <label>Carbs (g)<input id="mineCarbs" type="number" min="0" step="0.1"></label>
+                <label>Fat (g)<input id="mineFat" type="number" min="0" step="0.1"></label>
+                <label>Fibre (g)<input id="mineFibre" type="number" min="0" step="0.1"></label>
+                <label>Sugar (g)<input id="mineSugar" type="number" min="0" step="0.1"></label>
+              </div>
+              <div class="field-row">
+                <button id="mineManualCancel" type="button" class="btn-outline flex1">Cancel</button>
+                <button id="mineManualSave" type="button" class="btn-primary flex2">Save &amp; add to meal</button>
+              </div>
+            </div>
+            <p id="mineLogMessage" class="form-message"></p>
           </div>
 
         </section>

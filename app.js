@@ -80,6 +80,8 @@ const ui = {
   presetItemManual: false,
   plansView: 'hub',
   selectedDay: null,
+  mineMeal: 'breakfast',
+  minePending: null,
 };
 
 function freshForm() {
@@ -1634,13 +1636,14 @@ $('logWholeDay').addEventListener('click', () => {
 function renderPlans() {
   ensureCurrentWeekPlan();
   const plan = state.weekPlan;
-  const views = { hub: 'planViewHub', day: 'planViewDay', grocery: 'planViewGrocery', advice: 'planViewAdvice' };
+  const views = { hub: 'planViewHub', day: 'planViewDay', grocery: 'planViewGrocery', advice: 'planViewAdvice', mine: 'planViewMine' };
   Object.values(views).forEach(id => { $(id).hidden = true; });
   const view = views[ui.plansView] || views.hub;
   $(view).hidden = false;
   if (view === 'planViewHub') renderPlanHub(plan);
   else if (view === 'planViewDay') renderPlanDay(plan);
   else if (view === 'planViewGrocery') renderGrocery(plan);
+  else if (view === 'planViewMine') renderMine(plan);
   else renderAdvice(plan);
 }
 
@@ -1827,6 +1830,186 @@ $('retuneFromWeighIn').addEventListener('click', () => {
   buildWeekPlan({ goal });
   $('adviceMessage').textContent = `Targets retuned to ${latestWeight(state)} kg and the week rebuilt.`;
   setTimeout(() => { $('adviceMessage').textContent = ''; }, 4000);
+});
+
+// ---------- Plans tab · My plan (self-composed) ----------
+
+const MINE_SLOTS = [['breakfast', 'Breakfast'], ['lunch', 'Lunch'], ['snack', 'Snacks'], ['dinner', 'Dinner']];
+const mineSlotLabel = slot => (MINE_SLOTS.find(s => s[0] === slot) || ['', ''])[1];
+
+$('modeMineBtn').addEventListener('click', () => showPlansView('mine'));
+$('modeAutoBtn').addEventListener('click', () => showPlansView('hub'));
+$('mineBack').addEventListener('click', () => showPlansView('hub'));
+
+function mineDayItems(dayIndex) {
+  const day = state.myPlan.days[dayIndex];
+  return MINE_SLOTS.flatMap(([slot]) => day[slot]);
+}
+
+function mineStatusMsg(text) {
+  $('mineStatus').textContent = text;
+}
+
+function renderMine(plan) {
+  const dayIndex = selectedDayIndex(plan);
+  $('mineTitle').textContent = plan.days[dayIndex].name;
+  $('mineWeekTag').textContent = `${displayDate(plan.weekStart)} – ${displayDate(plan.days[6].date)}`;
+
+  const strip = $('mineWeekStrip');
+  strip.replaceChildren();
+  plan.days.forEach((day, i) => {
+    const filled = mineDayItems(i).length > 0;
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = `week-day${i === dayIndex ? ' on' : ''}`;
+    el.innerHTML = `<span>${day.name.slice(0, 3)}</span><strong>${Number(day.date.slice(8))}</strong><i class="dot${filled ? ' filled' : ''}"></i>`;
+    el.addEventListener('click', () => { ui.selectedDay = i; render(); });
+    strip.appendChild(el);
+  });
+
+  const tabs = $('mineMealTabs');
+  tabs.replaceChildren();
+  MINE_SLOTS.forEach(([slot, label]) => {
+    const count = state.myPlan.days[dayIndex][slot].length;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = ui.mineMeal === slot ? 'on' : '';
+    btn.textContent = count ? `${label} · ${count}` : label;
+    btn.addEventListener('click', () => { ui.mineMeal = slot; render(); });
+    tabs.appendChild(btn);
+  });
+  $('mineMealName').textContent = mineSlotLabel(ui.mineMeal);
+
+  const items = state.myPlan.days[dayIndex][ui.mineMeal];
+  const list = $('mineMealList');
+  list.replaceChildren();
+  items.forEach((item, i) => {
+    const row = document.createElement('div');
+    row.className = 'mine-food-row';
+    const qty = `${item.quantity}${item.unit === 'pieces' ? ` pc${item.quantity === 1 ? '' : 's'}` : item.unit}`;
+    row.innerHTML = `
+      <span class="fn">${item.name}</span>
+      <span class="nut">${qty} · ${Math.round(num(item.calories))} kcal · ${Math.round(num(item.protein) * 10) / 10} g P</span>
+      <button type="button" class="rm-x" data-i="${i}" title="Remove">✕</button>`;
+    list.appendChild(row);
+  });
+  $('mineEmptyNote').hidden = items.length > 0;
+
+  // Live day meter against the plan's goal-based targets.
+  const totals = totalsFor(mineDayItems(dayIndex));
+  const calPct = Math.min(100, Math.round((totals.calories / plan.targetCalories) * 100));
+  const proPct = Math.min(100, Math.round((totals.protein / plan.targetProtein) * 100));
+  $('mineMeter').innerHTML = `
+    <div class="mine-mrow"><div class="lab"><span>Calories</span><span>${Math.round(totals.calories).toLocaleString()} / ${plan.targetCalories.toLocaleString()}</span></div><div class="mine-track"><i style="width:${calPct}%;background:var(--accent)"></i></div></div>
+    <div class="mine-mrow"><div class="lab"><span>Protein</span><span>${Math.round(totals.protein)} / ${plan.targetProtein} g</span></div><div class="mine-track"><i style="width:${proPct}%;background:${proPct < 90 ? 'var(--sugar-c)' : 'var(--accent2)'}"></i></div></div>`;
+  const stat = $('mineStat');
+  if (totals.calories === 0) {
+    stat.className = 'mine-stat ok';
+    stat.textContent = 'Add foods below to start building your day.';
+  } else if (totals.calories > plan.targetCalories * 1.07) {
+    stat.className = 'mine-stat';
+    stat.textContent = `${Math.round(totals.calories - plan.targetCalories)} kcal over target — trim a portion somewhere.`;
+  } else if (totals.protein < plan.targetProtein * 0.9) {
+    stat.className = 'mine-stat';
+    stat.textContent = `${Math.max(1, Math.round(plan.targetProtein - totals.protein))} g protein to go — curd, dal, soya or paneer close it fastest.`;
+  } else {
+    stat.className = 'mine-stat ok';
+    stat.textContent = 'Nicely balanced — calories and protein are on track. ✓';
+  }
+
+  const dayItems = mineDayItems(dayIndex);
+  $('mineLogDay').disabled = dayItems.length === 0;
+}
+
+// Remove a food from the selected meal.
+$('mineMealList').addEventListener('click', event => {
+  const btn = event.target.closest('.rm-x');
+  if (!btn) return;
+  const plan = state.weekPlan;
+  if (!plan) return;
+  state.myPlan.days[selectedDayIndex(plan)][ui.mineMeal].splice(Number(btn.dataset.i), 1);
+  save();
+});
+
+// Search-as-you-type over the built-in DB + shared bank + your foods.
+attachFoodSuggest('mineFoodName', 'mineSuggest', item => {
+  $('mineFoodName').value = item.n;
+  $('mineQty').value = item.sg;
+  $('mineUnit').value = item.c === 'bev' ? 'ml' : 'g';
+  mineStatusMsg(`${item.n} — set the quantity, then tap Add.`);
+});
+
+function hideMineManual() {
+  ui.minePending = null;
+  $('mineManualWrap').hidden = true;
+  ['mineCalories', 'mineProtein', 'mineCarbs', 'mineFat', 'mineFibre', 'mineSugar'].forEach(id => { $(id).value = ''; });
+}
+
+function clearMineAdd() {
+  $('mineFoodName').value = '';
+  $('mineQty').value = 100;
+  $('mineUnit').value = 'g';
+}
+
+function pushMineItem(name, quantity, unit, values) {
+  const plan = state.weekPlan;
+  const item = { name, quantity, unit, ...Object.fromEntries(NUTRIENTS.map(n => [n, values[n] == null ? null : num(values[n])])) };
+  state.myPlan.days[selectedDayIndex(plan)][ui.mineMeal].push(item);
+  return item;
+}
+
+$('mineAddBtn').addEventListener('click', async () => {
+  const name = standardName($('mineFoodName').value);
+  const quantity = num($('mineQty').value);
+  const unit = $('mineUnit').value;
+  if (!name || quantity <= 0) { mineStatusMsg('Type a food name and quantity first.'); return; }
+  mineStatusMsg('Finding nutrition values…');
+  const result = await calculateFood(name, quantity, unit, state.customFoods);
+  if (result.values && result.values.calories != null) {
+    const item = pushMineItem(name, quantity, unit, result.values);
+    hideMineManual();
+    clearMineAdd();
+    mineStatusMsg(`Added ${item.name} — ${Math.round(item.calories)} kcal · ${item.protein} g protein.`);
+    save();
+  } else {
+    // Not in any food source — capture its nutrition once, right here.
+    ui.minePending = { name, quantity, unit };
+    $('mineManualTitle').textContent = `${name} — nutrition for ${quantity} ${unit}`;
+    $('mineManualWrap').hidden = false;
+    mineStatusMsg(`“${name}” isn't in the food bank yet — enter its nutrition below to add it.`);
+    $('mineCalories').focus();
+  }
+});
+
+$('mineManualCancel').addEventListener('click', () => { hideMineManual(); mineStatusMsg(''); });
+
+$('mineManualSave').addEventListener('click', () => {
+  const pending = ui.minePending;
+  if (!pending) return;
+  const fields = { calories: 'mineCalories', protein: 'mineProtein', carbs: 'mineCarbs', fat: 'mineFat', fibre: 'mineFibre', sugar: 'mineSugar' };
+  const values = Object.fromEntries(Object.entries(fields).map(([n, id]) => [n, $(id).value === '' ? null : num($(id).value)]));
+  if (values.calories == null) { mineStatusMsg('Calories are required — leave other unknown values blank.'); return; }
+  // Same pipeline as the Log tab: saved to your foods, submitted for shared-bank review.
+  const baseQuantity = comparableQuantity(pending.name, pending.quantity, pending.unit);
+  state.customFoods[foodKey(pending.name)] = { name: pending.name, baseQuantity, photoHashes: [], ...values };
+  submitFoodForReview(foodKey(pending.name), { name: pending.name, baseQuantity, ...values });
+  const item = pushMineItem(pending.name, pending.quantity, pending.unit, values);
+  hideMineManual();
+  clearMineAdd();
+  mineStatusMsg(`${item.name} saved to your foods & sent for review — added to ${mineSlotLabel(ui.mineMeal)}.`);
+  save();
+});
+
+$('mineLogDay').addEventListener('click', () => {
+  const plan = state.weekPlan;
+  if (!plan) return;
+  const day = plan.days[selectedDayIndex(plan)];
+  const items = mineDayItems(selectedDayIndex(plan));
+  if (!items.length) return;
+  items.forEach(item => { state.foods.push({ ...item }); pushRecent(item); });
+  save();
+  $('mineLogMessage').textContent = `${day.name}'s plan (${items.length} foods) is in Today — rings, score and Trends all count it.`;
+  setTimeout(() => { $('mineLogMessage').textContent = ''; }, 4000);
 });
 
 // ---------- More tab ----------

@@ -612,3 +612,29 @@ label { display: flex; flex-direction: column; gap: 5px; font-size: .72rem; colo
 .bmi-badge[data-tone="good"] { background: var(--grade-bg); color: var(--grade-ink); }
 .bmi-badge[data-tone="high"] { background: var(--danger-soft); color: var(--danger); }
 .bmi-badge[data-tone="low"] { background: var(--water-soft); color: var(--water); }
+
+/* ---------- Plans tab · My plan builder ---------- */
+
+.plan-mode-seg button small { display: block; font-size: .56rem; color: var(--muted); font-weight: 700; margin-top: 1px; }
+.plan-mode-seg button.on small { color: var(--accent2); }
+
+.week-day .dot { width: 5px; height: 5px; border-radius: 50%; background: transparent; border: 1px solid var(--muted); font-style: normal; margin-top: 1px; }
+.week-day .dot.filled { background: var(--accent2); border-color: var(--accent2); }
+.week-day.on .dot.filled { background: #dbe38a; border-color: #dbe38a; }
+
+.mine-mrow { display: flex; flex-direction: column; gap: 3px; margin-bottom: 7px; }
+.mine-mrow .lab { display: flex; justify-content: space-between; font-size: .7rem; font-weight: 700; color: var(--sub); font-variant-numeric: tabular-nums; }
+.mine-track { height: 8px; border-radius: 6px; background: var(--track); overflow: hidden; }
+.mine-track i { display: block; height: 100%; border-radius: 6px; transition: width .25s ease; }
+
+.mine-stat { font-size: .72rem; font-weight: 700; padding: 9px 11px; border-radius: 11px; background: var(--danger-soft); color: var(--danger); margin: 0; }
+.mine-stat.ok { background: var(--chip-bg); color: var(--chip-ink); }
+
+.mine-food-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 2px; border-bottom: 1px solid var(--line); font-size: .8rem; }
+.mine-food-row:last-child { border-bottom: 0; }
+.mine-food-row .fn { flex: 1; min-width: 0; overflow-wrap: break-word; }
+.mine-food-row .nut { flex: none; color: var(--accent); font-weight: 700; font-size: .7rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.mine-food-row .rm-x { border: 0; background: none; color: var(--danger); font-weight: 800; cursor: pointer; padding: 0 4px; font-size: .9rem; }
+
+.mine-add { flex: none; width: auto; padding: 12px 22px; }
+.mine-adding-note { margin: 2px 2px 0; }
