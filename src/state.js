@@ -5,6 +5,13 @@ export const STORAGE_KEY = 'nutrition-pulse-data-v1';
 export const BACKUP_KEY = 'nutrition-pulse-backup-v1';
 export const userCacheKey = uid => `${STORAGE_KEY}-${uid}`;
 
+export const MY_PLAN_SLOTS = ['breakfast', 'lunch', 'snack', 'dinner'];
+
+/** Seven empty days (Mon–Sun), four meal lists each, for the self-composed plan. */
+export function emptyMyPlan() {
+  return { days: Array.from({ length: 7 }, () => Object.fromEntries(MY_PLAN_SLOTS.map(slot => [slot, []]))) };
+}
+
 export function freshState() {
   return {
     theme: 'auto',
@@ -24,6 +31,7 @@ export function freshState() {
     displayName: '',
     mealPresets: [],
     weekPlan: null,
+    myPlan: emptyMyPlan(),
     pantry: {},
     alertsEnabled: false,
     lastAlertDate: {},
@@ -48,6 +56,15 @@ export function normalizeState(data) {
   state.customFoods = state.customFoods || {};
   state.mealPresets = Array.isArray(state.mealPresets) ? state.mealPresets : [];
   state.weekPlan = state.weekPlan && Array.isArray(state.weekPlan.days) ? state.weekPlan : null;
+  // Self-composed plan: rebuild the 7×4 shape so every day/slot is always a valid array.
+  const savedMyPlan = data && data.myPlan;
+  state.myPlan = emptyMyPlan();
+  if (savedMyPlan && Array.isArray(savedMyPlan.days)) {
+    state.myPlan.days.forEach((day, i) => {
+      const savedDay = savedMyPlan.days[i] || {};
+      MY_PLAN_SLOTS.forEach(slot => { if (Array.isArray(savedDay[slot])) day[slot] = savedDay[slot]; });
+    });
+  }
   state.pantry = state.pantry || {};
   delete state.dietPlan;   // superseded by the weekly Plans feature
   state.lastAlertDate = state.lastAlertDate || {};
