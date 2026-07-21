@@ -255,11 +255,21 @@ function renderToday(derived) {
   $('caloriesRemainingLabel').textContent = derived.caloriesRemainingLabel;
   $('proteinRemainingLabel').textContent = derived.proteinRemainingLabel;
 
-  // Quick add offers today's still-unlogged planned meals first, then recents.
-  const planMeals = todaysPlanMeals().slice(0, 2);
-  const quickAdds = state.recents.slice(0, 4 - planMeals.length);
-  $('noRecentsNote').hidden = planMeals.length > 0 || quickAdds.length > 0;
-  if ($('quickAddTag')) $('quickAddTag').textContent = planMeals.length ? 'from your plan' : 'recent foods';
+  // Quick add follows the active plan: the Default or My-plan meals for today,
+  // or — with no plan active — the foods you add most often.
+  renderActivePlanSeg();
+  const usingPlan = state.activePlan !== 'none';
+  const planMeals = usingPlan ? activePlanTodayMeals().slice(0, 2) : [];
+  const fillers = usingPlan ? state.recents.slice(0, 4 - planMeals.length) : frequentFoods(4);
+  $('noRecentsNote').hidden = planMeals.length > 0 || fillers.length > 0;
+  $('noRecentsNote').textContent = usingPlan
+    ? 'Foods you log appear here for one-tap re-adding.'
+    : 'Log some foods and the ones you add most often show up here.';
+  if ($('quickAddTag')) {
+    $('quickAddTag').textContent = planMeals.length
+      ? (state.activePlan === 'mine' ? 'from My plan' : 'from Default plan')
+      : (usingPlan ? 'recent foods' : 'your usual foods');
+  }
   const list = $('quickAddList');
   list.replaceChildren();
   const quickRow = (labelText, kcalText, onAdd) => {
@@ -282,12 +292,9 @@ function renderToday(derived) {
   planMeals.forEach(meal => {
     const t = totalsFor(meal.items);
     const names = meal.items.slice(0, 2).map(i => i.name).join(' + ') + (meal.items.length > 2 ? ' +' : '');
-    quickRow(`${meal.name} · ${names}`, `+ ${Math.round(t.calories)}`, () => {
-      addPlanMealFoods(meal);
-      save();
-    });
+    quickRow(`${meal.name} · ${names}`, `+ ${Math.round(t.calories)}`, () => { meal.add(); save(); });
   });
-  quickAdds.forEach(recent => {
+  fillers.forEach(recent => {
     quickRow(`${recent.name} · ${recent.quantity}${recent.unit}`, `${Math.round(num(recent.calories))} kcal`, () => quickAddFood(recent));
   });
 
@@ -345,6 +352,10 @@ function pushRecent(food) {
     { name: food.name, quantity: food.quantity, unit: food.unit, ...Object.fromEntries(NUTRIENTS.map(n => [n, food[n]])) },
     ...state.recents.filter(r => foodKey(r.name) !== foodKey(food.name)),
   ].slice(0, 6);
+  // Count how often each food is logged, so "No plan" Quick Add can surface the
+  // foods you add most often (see frequentFoods).
+  const key = foodKey(food.name);
+  state.foodFreq[key] = num(state.foodFreq[key]) + 1;
 }
 
 function resetFoodForm() {
@@ -1607,6 +1618,90 @@ function showPlansView(view) {
   if (scroller) scroller.scrollTop = 0;
 }
 
+// ----- Active plan: which plan drives Today's Quick Add and the grocery list -----
+
+const WEEK_DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+/** The seven date keys (Mon–Sun) of the week containing today. */
+function weekDates() {
+  const start = new Date(`${weekStartKey(state.currentDate)}T00:00:00`);
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    return dayKey(d);
+  });
+}
+
+/** Recents ranked by how often they're logged (for the "No plan" Quick Add); falls back to saved foods. */
+function frequentFoods(limit) {
+  const freq = state.foodFreq || {};
+  const ranked = [...state.recents].sort((a, b) => num(freq[foodKey(b.name)]) - num(freq[foodKey(a.name)]));
+  if (ranked.length) return ranked.slice(0, limit);
+  return Object.values(state.customFoods || {})
+    .filter(food => food && food.name)
+    .slice(0, limit)
+    .map(food => ({ name: food.name, quantity: food.baseQuantity || 100, unit: 'g', ...Object.fromEntries(NUTRIENTS.map(n => [n, num(food[n])])) }));
+}
+
+/** Today's meals for the active plan, each with an add() that logs it into Today. */
+function activePlanTodayMeals() {
+  if (state.activePlan === 'auto') {
+    return todaysPlanMeals().map(meal => ({ name: meal.name, items: meal.items, add: () => addPlanMealFoods(meal) }));
+  }
+  if (state.activePlan === 'mine') {
+    const day = state.myPlan.days[Math.max(0, weekDates().indexOf(state.currentDate))];
+    const loggedToday = state.myPlanLog[state.currentDate] || {};
+    return MINE_SLOTS.filter(([slot]) => day[slot].length && !loggedToday[slot]).map(([slot, label]) => ({
+      name: label, items: day[slot],
+      add: () => {
+        day[slot].forEach(item => { state.foods.push({ ...item }); pushRecent(item); });
+        if (!state.myPlanLog[state.currentDate]) state.myPlanLog[state.currentDate] = {};
+        state.myPlanLog[state.currentDate][slot] = true;
+      },
+    }));
+  }
+  return [];
+}
+
+/** My plan reshaped like a weekPlan so groceryList() can consume it unchanged. */
+function myPlanAsWeek() {
+  const dates = weekDates();
+  return {
+    weekStart: dates[0],
+    days: state.myPlan.days.map((day, i) => ({
+      date: dates[i], name: WEEK_DAY_NAMES[i],
+      meals: MINE_SLOTS.map(([slot, label]) => ({ slotId: slot, name: label, items: day[slot] })),
+    })),
+  };
+}
+
+/** The plan the grocery list should summarise, or null when no plan is active. */
+function activeGroceryPlan() {
+  if (state.activePlan === 'auto') return state.weekPlan;
+  if (state.activePlan === 'mine') return myPlanAsWeek();
+  return null;
+}
+
+const activePlanLabel = () => (state.activePlan === 'auto' ? 'Default plan' : state.activePlan === 'mine' ? 'My plan' : 'No plan');
+
+/** Fills a segmented control whose buttons set state.activePlan. */
+function fillPlanSeg(seg, options) {
+  if (!seg) return;
+  seg.replaceChildren();
+  options.forEach(([value, label]) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = state.activePlan === value ? 'on' : '';
+    btn.textContent = label;
+    btn.addEventListener('click', () => { if (state.activePlan !== value) { state.activePlan = value; save(); } });
+    seg.appendChild(btn);
+  });
+}
+
+function renderActivePlanSeg() {
+  fillPlanSeg($('activePlanSeg'), [['auto', 'Default'], ['mine', 'My plan'], ['none', 'No plan']]);
+}
+
 $('newWeekBtn').addEventListener('click', () => buildWeekPlan({ variant: state.weekPlan ? state.weekPlan.variant + 1 : 0 }));
 $('tileGrocery').addEventListener('click', () => showPlansView('grocery'));
 $('tileAdvice').addEventListener('click', () => showPlansView('advice'));
@@ -1642,7 +1737,7 @@ function renderPlans() {
   $(view).hidden = false;
   if (view === 'planViewHub') renderPlanHub(plan);
   else if (view === 'planViewDay') renderPlanDay(plan);
-  else if (view === 'planViewGrocery') renderGrocery(plan);
+  else if (view === 'planViewGrocery') renderGrocery();
   else if (view === 'planViewMine') renderMine(plan);
   else renderAdvice(plan);
 }
@@ -1742,16 +1837,36 @@ function renderPlanDay(plan) {
   btn.textContent = logged ? 'Logged into Today ✓' : 'Log this whole day ✓';
 }
 
-function renderGrocery(plan) {
-  $('groceryEyebrow').textContent = `Auto-built · ${displayDate(plan.weekStart)} – ${displayDate(plan.days[6].date)}`;
-  const groups = groceryList(plan);
+function renderGrocery() {
+  fillPlanSeg($('grocerySourceSeg'), [['auto', 'Default plan'], ['mine', 'My plan']]);
+  const plan = activeGroceryPlan();
+  const groups = plan ? groceryList(plan) : [];
   const itemCount = groups.reduce((total, group) => total + group.items.length, 0);
-  $('grocerySummary').innerHTML = `
+  const summary = $('grocerySummary');
+  const wrap = $('groceryCats');
+  const emptyNote = $('groceryEmptyNote');
+
+  if (!plan || itemCount === 0) {
+    // No active plan, or the chosen plan has no foods to shop for.
+    $('groceryEyebrow').textContent = `Source · ${activePlanLabel()}`;
+    emptyNote.hidden = false;
+    emptyNote.textContent = state.activePlan === 'none'
+      ? 'No plan is active. Pick Default plan or My plan above to auto-build your grocery list.'
+      : state.activePlan === 'mine'
+        ? 'Your My plan has no foods yet. Add foods in Plans → My plan and they’ll appear here.'
+        : 'Nothing to shop for yet.';
+    summary.replaceChildren();
+    wrap.replaceChildren();
+    return;
+  }
+
+  emptyNote.hidden = true;
+  $('groceryEyebrow').textContent = `${activePlanLabel()} · ${displayDate(plan.weekStart)} – ${displayDate(plan.days[6].date)}`;
+  summary.innerHTML = `
     <div class="b"><strong>${itemCount}</strong><span>Items</span></div>
     <div class="b"><strong>1</strong><span>Person</span></div>
     <div class="b"><strong>7</strong><span>Days</span></div>`;
 
-  const wrap = $('groceryCats');
   wrap.replaceChildren();
   groups.forEach(group => {
     const head = document.createElement('div');
@@ -1773,9 +1888,9 @@ function renderGrocery(plan) {
 }
 
 $('copyGrocery').addEventListener('click', async () => {
-  const plan = state.weekPlan;
-  if (!plan) return;
-  const lines = [`Grocery list · ${displayDate(plan.weekStart)} – ${displayDate(plan.days[6].date)}`, ''];
+  const plan = activeGroceryPlan();
+  if (!plan) { $('copyMessage').textContent = 'Pick Default plan or My plan first.'; setTimeout(() => { $('copyMessage').textContent = ''; }, 3000); return; }
+  const lines = [`Grocery list (${activePlanLabel()}) · ${displayDate(plan.weekStart)} – ${displayDate(plan.days[6].date)}`, ''];
   groceryList(plan).forEach(group => {
     lines.push(`${group.label}:`);
     group.items.forEach(item => lines.push(`${state.pantry[item.key] ? '✓' : '•'} ${item.name} — ${item.display}`));

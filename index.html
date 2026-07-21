@@ -104,6 +104,7 @@
 
           <div class="card">
             <div class="section-head"><span class="card-title">Quick add</span><span class="tag" id="quickAddTag">recent foods</span></div>
+            <div id="activePlanSeg" class="seg active-plan-seg"></div>
             <p id="noRecentsNote" class="muted small">Foods you log appear here for one-tap re-adding.</p>
             <ul id="quickAddList" class="quick-add-list"></ul>
           </div>
@@ -171,6 +172,8 @@
               <div class="plan-subtitle"><p class="eyebrow" id="groceryEyebrow"></p><h2>Grocery list</h2></div>
               <button id="copyGrocery" type="button" class="chip-button">Copy list</button>
             </div>
+            <div id="grocerySourceSeg" class="seg grocery-source-seg"></div>
+            <p id="groceryEmptyNote" class="muted small empty-note" hidden></p>
             <div id="grocerySummary" class="gsum"></div>
             <div id="groceryCats" class="card tight-card"></div>
             <div class="plan-banner"><span class="banner-ic">🧾</span><div><strong>Only what's new</strong><p>Tick what's in your pantry — it stays ticked for next week.</p></div></div>
