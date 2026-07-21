@@ -32,6 +32,9 @@ export function freshState() {
     mealPresets: [],
     weekPlan: null,
     myPlan: emptyMyPlan(),
+    activePlan: 'auto',
+    foodFreq: {},
+    myPlanLog: {},
     pantry: {},
     alertsEnabled: false,
     lastAlertDate: {},
@@ -66,6 +69,11 @@ export function normalizeState(data) {
     });
   }
   state.pantry = state.pantry || {};
+  // Which plan drives Today's Quick Add and the grocery list: the generated
+  // "Default" plan, the self-composed "My plan", or none (usual foods).
+  state.activePlan = ['auto', 'mine', 'none'].includes(state.activePlan) ? state.activePlan : 'auto';
+  state.foodFreq = state.foodFreq || {};       // name → times logged, for "frequently added"
+  state.myPlanLog = state.myPlanLog || {};     // dateKey → { slot: true } quick-add logged markers
   delete state.dietPlan;   // superseded by the weekly Plans feature
   state.lastAlertDate = state.lastAlertDate || {};
   state.currentDate = state.currentDate || dayKey();
