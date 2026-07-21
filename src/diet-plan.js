@@ -311,16 +311,24 @@ export function groceryList(plan) {
   const sums = new Map();
   plan.days.forEach(day => day.meals.forEach(meal => meal.items.forEach(entry => {
     const key = entry.name.toLowerCase();
-    sums.set(key, (sums.get(key) || 0) + num(entry.quantity));
+    const agg = sums.get(key) || { total: 0, name: entry.name, unit: entry.unit || 'g' };
+    agg.total += num(entry.quantity);
+    sums.set(key, agg);
   })));
 
   const groups = GROCERY_GROUPS.map(group => ({ ...group, items: [] }));
   const fallback = groups[groups.length - 1];
-  [...sums.entries()].forEach(([key, total]) => {
+  [...sums.entries()].forEach(([key, agg]) => {
     const item = byName.get(key);
-    if (!item) return;
-    const group = groups.find(g => g.cats.includes(item.c)) || fallback;
-    group.items.push({ name: item.n, key, display: displayQuantity(item, total, itemUnit(item)) });
+    if (item) {
+      const group = groups.find(g => g.cats.includes(item.c)) || fallback;
+      group.items.push({ name: item.n, key, display: displayQuantity(item, agg.total, itemUnit(item)) });
+    } else {
+      // A custom food from "My plan" that isn't in the built-in database — still
+      // list it (under Snacks & extras) using its own unit, so nothing is dropped.
+      const unit = agg.unit === 'pieces' ? 'pcs' : agg.unit;
+      fallback.items.push({ name: agg.name, key, display: `${Math.round(agg.total)} ${unit}` });
+    }
   });
   groups.forEach(group => group.items.sort((a, b) => a.name.localeCompare(b.name)));
   return groups.filter(group => group.items.length);
