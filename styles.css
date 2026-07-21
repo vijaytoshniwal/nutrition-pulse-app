@@ -526,8 +526,7 @@ label { display: flex; flex-direction: column; gap: 5px; font-size: .72rem; colo
 .seg { display: flex; background: var(--track); border-radius: 13px; padding: 4px; gap: 2px; }
 .seg button { flex: 1; border: 0; background: transparent; font: inherit; font-size: .76rem; font-weight: 700; color: var(--muted); padding: 8px 4px; border-radius: 10px; cursor: pointer; }
 .seg button.on { background: var(--panel); color: var(--accent); box-shadow: var(--card-shadow); }
-.active-plan-seg, .grocery-source-seg { margin: 2px 0; }
-.active-plan-seg button, .grocery-source-seg button { padding: 7px 4px; font-size: .72rem; }
+.plan-mode-seg { margin-bottom: 4px; }
 
 .week-strip { display: flex; gap: 5px; justify-content: space-between; }
 .week-day { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 1px; border-radius: 11px; background: var(--chip-bg); border: 1px solid var(--line); cursor: pointer; }

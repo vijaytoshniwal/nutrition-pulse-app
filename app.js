@@ -212,6 +212,8 @@ $('scoreButton').addEventListener('click', () => showTab('trends'));
 
 function showTab(tab) {
   ui.tab = tab;
+  // Opening the Plans tab lands on the active mode's home screen.
+  if (tab === 'plans') ui.plansView = homeViewFor();
   document.querySelectorAll('.tab-panel').forEach(panel => { panel.hidden = panel.dataset.tab !== tab; });
   // The + button only makes sense on the Today tab, where it opens the food
   // log. It's hidden everywhere else (Profile, Weight, Trends, etc.).
@@ -255,9 +257,8 @@ function renderToday(derived) {
   $('caloriesRemainingLabel').textContent = derived.caloriesRemainingLabel;
   $('proteinRemainingLabel').textContent = derived.proteinRemainingLabel;
 
-  // Quick add follows the active plan: the Default or My-plan meals for today,
-  // or — with no plan active — the foods you add most often.
-  renderActivePlanSeg();
+  // Quick add follows the active plan (chosen in the Plans tab): the Auto or
+  // My-plan meals for today, or — with no plan active — your most-added foods.
   const usingPlan = state.activePlan !== 'none';
   const planMeals = usingPlan ? activePlanTodayMeals().slice(0, 2) : [];
   const fillers = usingPlan ? state.recents.slice(0, 4 - planMeals.length) : frequentFoods(4);
@@ -1684,30 +1685,40 @@ function activeGroceryPlan() {
 
 const activePlanLabel = () => (state.activePlan === 'auto' ? 'Default plan' : state.activePlan === 'mine' ? 'My plan' : 'No plan');
 
-/** Fills a segmented control whose buttons set state.activePlan. */
-function fillPlanSeg(seg, options) {
-  if (!seg) return;
+// Each active-plan mode has a "home" screen on the Plans tab.
+const PLAN_HOME_VIEW = { auto: 'hub', mine: 'mine', none: 'none' };
+function homeViewFor() { return PLAN_HOME_VIEW[state.activePlan] || 'hub'; }
+
+/**
+ * The Plans-tab mode selector — Auto (AI-generated) · My Plan (you compose) ·
+ * No Plan (manual). It sets the active plan for the whole app (Quick Add,
+ * grocery) and opens that mode's home screen.
+ */
+function renderPlanModeSeg() {
+  const seg = $('planModeSeg');
   seg.replaceChildren();
-  options.forEach(([value, label]) => {
+  [['auto', 'Auto', 'AI-generated'], ['mine', 'My Plan', 'You compose'], ['none', 'No Plan', 'Manual']].forEach(([value, label, sub]) => {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = state.activePlan === value ? 'on' : '';
-    btn.textContent = label;
-    btn.addEventListener('click', () => { if (state.activePlan !== value) { state.activePlan = value; save(); } });
+    btn.innerHTML = `${label}<small>${sub}</small>`;
+    btn.addEventListener('click', () => {
+      if (state.activePlan === value && ui.plansView === PLAN_HOME_VIEW[value]) return;
+      state.activePlan = value;
+      ui.plansView = PLAN_HOME_VIEW[value];
+      save();
+    });
     seg.appendChild(btn);
   });
-}
-
-function renderActivePlanSeg() {
-  fillPlanSeg($('activePlanSeg'), [['auto', 'Default'], ['mine', 'My plan'], ['none', 'No plan']]);
 }
 
 $('newWeekBtn').addEventListener('click', () => buildWeekPlan({ variant: state.weekPlan ? state.weekPlan.variant + 1 : 0 }));
 $('tileGrocery').addEventListener('click', () => showPlansView('grocery'));
 $('tileAdvice').addEventListener('click', () => showPlansView('advice'));
-$('dayBack').addEventListener('click', () => showPlansView('hub'));
-$('groceryBack').addEventListener('click', () => showPlansView('hub'));
-$('adviceBack').addEventListener('click', () => showPlansView('hub'));
+// Drill-downs return to the active mode's home screen (hub / mine / none).
+$('dayBack').addEventListener('click', () => showPlansView(homeViewFor()));
+$('groceryBack').addEventListener('click', () => showPlansView(homeViewFor()));
+$('adviceBack').addEventListener('click', () => showPlansView(homeViewFor()));
 
 $('swapDayBtn').addEventListener('click', () => {
   const plan = state.weekPlan;
@@ -1731,15 +1742,43 @@ $('logWholeDay').addEventListener('click', () => {
 function renderPlans() {
   ensureCurrentWeekPlan();
   const plan = state.weekPlan;
-  const views = { hub: 'planViewHub', day: 'planViewDay', grocery: 'planViewGrocery', advice: 'planViewAdvice', mine: 'planViewMine' };
+  renderPlanModeSeg();
+  const views = { hub: 'planViewHub', day: 'planViewDay', grocery: 'planViewGrocery', advice: 'planViewAdvice', mine: 'planViewMine', none: 'planViewNone' };
   Object.values(views).forEach(id => { $(id).hidden = true; });
   const view = views[ui.plansView] || views.hub;
   $(view).hidden = false;
+  // The mode selector shows on the three mode "home" screens, not on the
+  // grocery / advice / day drill-downs (those have their own back button).
+  $('planModeSeg').hidden = !['hub', 'mine', 'none'].includes(ui.plansView);
   if (view === 'planViewHub') renderPlanHub(plan);
   else if (view === 'planViewDay') renderPlanDay(plan);
   else if (view === 'planViewGrocery') renderGrocery();
   else if (view === 'planViewMine') renderMine(plan);
+  else if (view === 'planViewNone') renderNone();
   else renderAdvice(plan);
+}
+
+/** Manual mode: preview the frequently-eaten foods that Today's Quick Add will offer. */
+function renderNone() {
+  const foods = frequentFoods(6);
+  $('noneUsualEmpty').hidden = foods.length > 0;
+  const list = $('noneUsualList');
+  list.replaceChildren();
+  foods.forEach(food => {
+    const li = document.createElement('li');
+    const label = document.createElement('span');
+    label.textContent = `${food.name} · ${food.quantity}${food.unit}`;
+    const right = document.createElement('div');
+    right.className = 'qty';
+    const kcal = document.createElement('span');
+    kcal.textContent = `${Math.round(num(food.calories))} kcal`;
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button'; addBtn.className = 'round-add'; addBtn.textContent = '+';
+    addBtn.addEventListener('click', () => quickAddFood(food));
+    right.append(kcal, addBtn);
+    li.append(label, right);
+    list.appendChild(li);
+  });
 }
 
 function renderPlanHub(plan) {
@@ -1838,7 +1877,6 @@ function renderPlanDay(plan) {
 }
 
 function renderGrocery() {
-  fillPlanSeg($('grocerySourceSeg'), [['auto', 'Default plan'], ['mine', 'My plan']]);
   const plan = activeGroceryPlan();
   const groups = plan ? groceryList(plan) : [];
   const itemCount = groups.reduce((total, group) => total + group.items.length, 0);
@@ -1952,9 +1990,7 @@ $('retuneFromWeighIn').addEventListener('click', () => {
 const MINE_SLOTS = [['breakfast', 'Breakfast'], ['lunch', 'Lunch'], ['snack', 'Snacks'], ['dinner', 'Dinner']];
 const mineSlotLabel = slot => (MINE_SLOTS.find(s => s[0] === slot) || ['', ''])[1];
 
-$('modeMineBtn').addEventListener('click', () => showPlansView('mine'));
-$('modeAutoBtn').addEventListener('click', () => showPlansView('hub'));
-$('mineBack').addEventListener('click', () => showPlansView('hub'));
+$('mineGroceryBtn').addEventListener('click', () => showPlansView('grocery'));
 
 function mineDayItems(dayIndex) {
   const day = state.myPlan.days[dayIndex];
@@ -2324,7 +2360,15 @@ watchAuthState(async user => {
 $('appVersion').textContent = `Version ${APP_VERSION}`;
 renderAuthScreen();
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js');
+  // updateViaCache:'none' forces the browser to fetch sw.js from the network
+  // (never its HTTP cache) on every check — without this, a host that serves
+  // sw.js with cache headers can keep phones on an old version indefinitely.
+  navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then(reg => {
+    // Actively check for a new version on load and whenever the app returns to
+    // the foreground, so reopening the app is enough to pick up a deploy.
+    reg.update().catch(() => {});
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); });
+  }).catch(() => {});
   // When a new service worker takes control (a new version was deployed),
   // reload once so the fresh code is used instead of the old cached version.
   let reloadingForUpdate = false;
