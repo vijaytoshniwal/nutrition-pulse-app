@@ -681,8 +681,31 @@ label { display: flex; flex-direction: column; gap: 5px; font-size: .72rem; colo
 .hm-time { font-size: .66rem; color: var(--muted); font-weight: 600; }
 
 /* Profile · Meal timings settings */
-.meal-window-fields { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 12px; }
-.meal-window-row { display: flex; align-items: center; gap: 7px; }
-.meal-window-row input[type="text"] { flex: 1.5; min-width: 0; font-size: .82rem; padding: 10px 12px; }
-.meal-window-row input[type="time"] { flex: 1; min-width: 0; font-size: .78rem; padding: 10px 8px; }
+.meal-window-fields { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; }
+.meal-window-row {
+  display: grid; grid-template-columns: 36px minmax(0, 1fr); column-gap: 11px; row-gap: 8px; align-items: center;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  padding: 11px 12px; box-shadow: var(--card-shadow);
+}
+.mw-ic {
+  grid-row: 1 / 3; width: 36px; height: 36px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; font-size: 1.1rem;
+}
+.mw-name {
+  grid-column: 2; width: 100%; min-width: 0; border: 0; background: transparent; padding: 2px 0; border-radius: 0;
+  font-family: 'Sora', sans-serif; font-weight: 700; font-size: .88rem; color: var(--ink);
+}
+.mw-name:focus { border: 0; outline: none; box-shadow: inset 0 -2px 0 var(--accent); }
+.mw-times { grid-column: 2; min-width: 0; display: flex; align-items: center; gap: 7px; }
+.mw-timebox {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; align-items: flex-start;
+  border: 1px solid var(--line); border-radius: 12px; padding: 6px 9px; background: var(--input-bg);
+}
+.mw-timebox > span { font-size: .54rem; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; color: var(--accent); }
+.mw-timebox input {
+  border: 0; background: transparent; padding: 0; width: 100%; min-width: 0; border-radius: 0;
+  font-size: .9rem; font-weight: 800; color: var(--ink); font-variant-numeric: tabular-nums;
+}
+.mw-timebox input:focus { border: 0; }
 .mw-sep { color: var(--muted); font-weight: 700; flex: 0 0 auto; }
+.mw-reset { width: 100%; padding: 12px; border-radius: 12px; font-size: .8rem; }

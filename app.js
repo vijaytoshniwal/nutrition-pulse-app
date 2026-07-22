@@ -1595,12 +1595,20 @@ function checkAndFireAlerts(derived) {
 }
 
 /** Profile → Meal timings: editable name + time range for each of the four meals. */
+const MEAL_ICONS = { breakfast: '🌅', lunch: '☀️', snack: '☕', dinner: '🌙' };
+const MEAL_TINTS = {
+  breakfast: 'rgba(201, 138, 61, .18)',
+  lunch: 'rgba(123, 160, 91, .2)',
+  snack: 'rgba(147, 100, 190, .16)',
+  dinner: 'rgba(106, 165, 160, .2)',
+};
+
 function renderMealWindowSettings() {
   const wrap = $('mealWindowFields');
   if (wrap.contains(document.activeElement)) return; // don't rebuild under the user's fingers
   wrap.replaceChildren();
   state.mealWindows.forEach(w => {
-    const name = createElement('input', { type: 'text', value: w.name, 'aria-label': 'Meal name' });
+    const name = createElement('input', { className: 'mw-name', type: 'text', value: w.name, 'aria-label': 'Meal name' });
     name.addEventListener('change', () => {
       const clean = name.value.trim();
       if (!clean) { name.value = w.name; return; }
@@ -1624,7 +1632,13 @@ function renderMealWindowSettings() {
     start.addEventListener('change', onTimeChange);
     end.addEventListener('change', onTimeChange);
     wrap.appendChild(createElement('div', { className: 'meal-window-row' }, [
-      name, start, createElement('span', { className: 'mw-sep' }, ['–']), end,
+      createElement('span', { className: 'mw-ic', style: { background: MEAL_TINTS[w.id] } }, [MEAL_ICONS[w.id] || '🍽']),
+      name,
+      createElement('div', { className: 'mw-times' }, [
+        createElement('label', { className: 'mw-timebox' }, [createElement('span', {}, ['From']), start]),
+        createElement('span', { className: 'mw-sep' }, ['–']),
+        createElement('label', { className: 'mw-timebox' }, [createElement('span', {}, ['To']), end]),
+      ]),
     ]));
   });
 }
