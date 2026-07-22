@@ -54,18 +54,27 @@ export async function requestNotificationPermission() {
   return result === 'granted';
 }
 
-export async function fireNotification(title, body) {
-  if (!notificationsSupported() || Notification.permission !== 'granted') return;
+/**
+ * Shows a system notification, returning `{ ok, reason }` so callers can record
+ * delivery status for diagnostics. `options` may carry { tag, silent, vibrate }.
+ */
+export async function fireNotification(title, body, options = {}) {
+  if (!notificationsSupported()) return { ok: false, reason: 'unsupported' };
+  if (Notification.permission !== 'granted') return { ok: false, reason: `permission-${Notification.permission}` };
+  const opts = { body, icon: './icon.svg', badge: './icon.svg', ...options };
   // Android Chrome throws on `new Notification(...)` from a page — notifications
   // there must go through the service worker registration instead.
   try {
     const registration = await navigator.serviceWorker.getRegistration();
     if (registration && registration.showNotification) {
-      await registration.showNotification(title, { body, icon: './icon.svg' });
-      return;
+      await registration.showNotification(title, opts);
+      return { ok: true, reason: 'sw' };
     }
   } catch { /* fall through to the direct constructor */ }
   try {
-    new Notification(title, { body, icon: './icon.svg' });
-  } catch { /* unsupported — in-app banner is the fallback */ }
+    new Notification(title, opts);
+    return { ok: true, reason: 'direct' };
+  } catch (error) {
+    return { ok: false, reason: `error:${error && error.name || 'unknown'}` };
+  }
 }
