@@ -1,6 +1,7 @@
 import { NUTRIENTS, DEFAULT_TARGETS, DEFAULT_PROFILE, DEFAULT_ACTIVITY_TARGETS } from './constants.js';
 import { dayKey, num } from './utils.js';
 import { normalizeMealWindows, daySummary } from './meal-timing.js';
+import { normalizeNotifPrefs } from './notifications.js';
 
 export const STORAGE_KEY = 'nutrition-pulse-data-v1';
 export const BACKUP_KEY = 'nutrition-pulse-backup-v1';
@@ -40,6 +41,11 @@ export function freshState() {
     pantry: {},
     alertsEnabled: false,
     lastAlertDate: {},
+    notifPrefs: normalizeNotifPrefs(null),
+    notifications: [],
+    notifLog: {},
+    lastWaterAt: '',
+    notifDiag: {},
     healthSyncToken: '',
     vegOnly: false,
     onboarded: false,
@@ -79,6 +85,14 @@ export function normalizeState(data) {
   state.myPlanLog = state.myPlanLog || {};     // dateKey → { slot: true } quick-add logged markers
   delete state.dietPlan;   // superseded by the weekly Plans feature
   state.lastAlertDate = state.lastAlertDate || {};
+  // Notification Center: the old single `alertsEnabled` toggle becomes the master
+  // switch of the richer per-category preferences the first time we normalize.
+  state.notifPrefs = normalizeNotifPrefs(data && data.notifPrefs, !!(data && data.alertsEnabled));
+  state.alertsEnabled = state.notifPrefs.enabled; // kept in step for legacy call sites
+  state.notifications = Array.isArray(state.notifications) ? state.notifications : [];
+  state.notifLog = state.notifLog || {};
+  state.notifDiag = state.notifDiag || {};
+  state.lastWaterAt = typeof state.lastWaterAt === 'string' ? state.lastWaterAt : '';
   state.currentDate = state.currentDate || dayKey();
   // Follow the device's light/dark setting unless the user explicitly picked a theme.
   if (!state.themeChosen) state.theme = 'auto';
