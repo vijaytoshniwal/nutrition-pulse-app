@@ -4,7 +4,7 @@
 
 /** Meal ids are fixed (they match the diet-plan slot ids); names and times are user-editable. */
 export const DEFAULT_MEAL_WINDOWS = [
-  { id: 'breakfast', name: 'Breakfast', start: '08:00', end: '9:30' },
+  { id: 'breakfast', name: 'Breakfast', start: '08:00', end: '09:30' },
   { id: 'lunch', name: 'Lunch', start: '13:30', end: '15:00' },
   { id: 'snack', name: 'Evening Snack', start: '17:00', end: '18:30' },
   { id: 'dinner', name: 'Dinner', start: '20:00', end: '21:30' },
