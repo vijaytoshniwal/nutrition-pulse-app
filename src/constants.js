@@ -1,5 +1,5 @@
 /** Shown on the sign-in screen; keep in step with the cache version in sw.js. */
-export const APP_VERSION = '2.35';
+export const APP_VERSION = '2.36';
 
 export const NUTRIENTS = ['calories', 'protein', 'carbs', 'fat', 'fibre', 'sugar'];
 
@@ -65,4 +65,4 @@ export const NAV_ITEMS = [
 ];
 
 /** Tabs that live behind the More menu — nav highlights More while they're open. */
-export const MORE_TABS = ['more', 'activity', 'meals', 'profile'];
+export const MORE_TABS = ['more', 'activity', 'meals', 'profile', 'notifications'];
