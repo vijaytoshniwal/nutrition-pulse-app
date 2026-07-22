@@ -215,7 +215,7 @@
               <ul id="mineSuggest" class="suggest-list" hidden></ul>
             </div>
             <div class="field-row">
-              <input id="mineQty" type="number" min="1" step="1" value="100" placeholder="Qty">
+              <input id="mineQty" type="number" min="0" step="any" value="100" placeholder="Qty">
               <select id="mineUnit">
                 <option value="g">grams</option>
                 <option value="ml">millilitres</option>
@@ -228,7 +228,7 @@
               <div class="section-head"><span class="card-title" id="mineManualTitle">New food — enter nutrition</span></div>
               <p class="muted small">Values are for the quantity you entered above. The food saves to your foods for reuse anywhere, and goes for review to join the shared bank.</p>
               <div class="nutrient-grid">
-                <label>Calories<input id="mineCalories" type="number" min="0" step="1"></label>
+                <label>Calories<input id="mineCalories" type="number" min="0" step="any"></label>
                 <label>Protein (g)<input id="mineProtein" type="number" min="0" step="0.1"></label>
                 <label>Carbs (g)<input id="mineCarbs" type="number" min="0" step="0.1"></label>
                 <label>Fat (g)<input id="mineFat" type="number" min="0" step="0.1"></label>
@@ -292,7 +292,7 @@
               <ul id="foodSuggestions" class="suggest-list" hidden></ul>
             </div>
             <div class="field-row">
-              <input id="foodQuantity" type="number" min="1" step="1" value="100" placeholder="Qty" required>
+              <input id="foodQuantity" type="number" min="0" step="any" value="100" placeholder="Qty" required>
               <select id="foodUnit">
                 <option value="g">grams</option>
                 <option value="ml">millilitres</option>
@@ -307,7 +307,7 @@
             </div>
             <p id="lookupStatus" class="form-message"></p>
             <div class="nutrient-grid">
-              <label>Calories<input id="foodCalories" type="number" min="0" step="1" required readonly></label>
+              <label>Calories<input id="foodCalories" type="number" min="0" step="any" required readonly></label>
               <label>Protein (g)<input id="foodProtein" type="number" min="0" step="0.1" required readonly></label>
               <label>Carbs (g)<input id="foodCarbs" type="number" min="0" step="0.1" required readonly></label>
               <label>Fat (g)<input id="foodFat" type="number" min="0" step="0.1" required readonly></label>
@@ -478,7 +478,7 @@
                 <input id="presetItemName" type="text" placeholder="Food name" autocomplete="off">
                 <ul id="presetSuggestions" class="suggest-list" hidden></ul>
               </div>
-              <input id="presetItemQuantity" type="number" min="1" step="1" value="100" placeholder="Qty">
+              <input id="presetItemQuantity" type="number" min="0" step="any" value="100" placeholder="Qty">
               <select id="presetItemUnit">
                 <option value="g">grams</option>
                 <option value="ml">millilitres</option>
@@ -492,7 +492,7 @@
             </div>
             <p id="presetItemStatus" class="form-message"></p>
             <div id="presetNutrientGrid" class="nutrient-grid" hidden>
-              <label>Calories<input id="presetCalories" type="number" min="0" step="1"></label>
+              <label>Calories<input id="presetCalories" type="number" min="0" step="any"></label>
               <label>Protein (g)<input id="presetProtein" type="number" min="0" step="0.1"></label>
               <label>Carbs (g)<input id="presetCarbs" type="number" min="0" step="0.1"></label>
               <label>Fat (g)<input id="presetFat" type="number" min="0" step="0.1"></label>

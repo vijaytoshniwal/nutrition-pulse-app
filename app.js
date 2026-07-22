@@ -2298,12 +2298,21 @@ function scheduleMidnightCheck() {
   setTimeout(() => { if (currentUser) render(); scheduleMidnightCheck(); }, midnight - now + 1000);
 }
 
-document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && currentUser) {
+// Whenever the app returns to the foreground: re-apply the light/dark theme so
+// an OS appearance change (including scheduled ones that happened while the app
+// was backgrounded) takes effect without a restart, and refresh the shared food
+// bank so newly approved foods become visible.
+function onForeground() {
+  applyTheme();
+  if (currentUser) {
+    loadFoodBankCache();
     render();
     applyActivitySync({ silent: true });
   }
-});
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) onForeground(); });
+window.addEventListener('focus', applyTheme);
+window.addEventListener('pageshow', applyTheme);
 
 // Pace alerts depend on the time of day, so re-check periodically while the app stays open.
 setInterval(() => {
