@@ -639,3 +639,50 @@ label { display: flex; flex-direction: column; gap: 5px; font-size: .72rem; colo
 
 .mine-add { flex: none; width: auto; padding: 12px 22px; }
 .mine-adding-note { margin: 2px 2px 0; }
+
+/* ---------- Meal timing ---------- */
+
+/* Add food: time eaten + meal row */
+.time-row { align-items: flex-end; flex-wrap: nowrap; }
+.time-row .now-chip { padding: 12px 14px; }
+
+/* Status chips: On time / Taken late / Missed / Not recorded */
+.st {
+  font-size: .6rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em;
+  padding: 3px 8px; border-radius: 999px; white-space: nowrap; flex: 0 0 auto;
+}
+.st-ontime { background: var(--chip-bg); color: var(--accent); }
+.st-late { background: rgba(201, 138, 61, .18); color: var(--fat); }
+.st-missed { background: var(--danger-soft); color: var(--danger); }
+.st-unrecorded, .st-pending { background: var(--track); color: var(--muted); }
+
+/* Today · Meal timing card */
+.meal-timing-list { display: flex; flex-direction: column; gap: 9px; margin-top: 10px; }
+.meal-timing-row { display: flex; align-items: center; gap: 10px; }
+.meal-timing-row .meal-dot { width: 9px; height: 9px; border-radius: 3px; flex: 0 0 auto; }
+.mt-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.mt-meta strong { font-size: .82rem; }
+.mt-meta span { font-size: .66rem; color: var(--muted); font-weight: 600; }
+.mt-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.mt-time { font-size: .66rem; color: var(--muted); font-weight: 600; }
+.mt-time:empty { display: none; }
+
+/* Food log entry: meal + time line */
+.entry-list .entry-time { color: var(--accent); font-weight: 700; }
+.entry-list .entry-time.late { color: var(--fat); }
+
+/* Daily history: per-meal timing rows */
+.history-meals { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 9px; }
+.hm-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.hm-meta { display: flex; flex-direction: column; min-width: 0; }
+.hm-meta strong { font-size: .74rem; }
+.hm-meta span { font-size: .62rem; color: var(--muted); font-weight: 600; }
+.hm-right { display: flex; align-items: center; gap: 8px; }
+.hm-time { font-size: .66rem; color: var(--muted); font-weight: 600; }
+
+/* Profile · Meal timings settings */
+.meal-window-fields { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 12px; }
+.meal-window-row { display: flex; align-items: center; gap: 7px; }
+.meal-window-row input[type="text"] { flex: 1.5; min-width: 0; font-size: .82rem; padding: 10px 12px; }
+.meal-window-row input[type="time"] { flex: 1; min-width: 0; font-size: .78rem; padding: 10px 8px; }
+.mw-sep { color: var(--muted); font-weight: 700; flex: 0 0 auto; }

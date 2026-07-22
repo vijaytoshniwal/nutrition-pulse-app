@@ -1,4 +1,4 @@
-const cacheName = 'nutrition-pulse-v2-33';
+const cacheName = 'nutrition-pulse-v2-34';
 const assets = [
   './',
   './index.html',
@@ -13,6 +13,7 @@ const assets = [
   './src/food-lookup.js',
   './src/food-db.js',
   './src/diet-plan.js',
+  './src/meal-timing.js',
   './src/firebase-sync.js',
   './src/image-hash.js',
   './src/alerts.js',

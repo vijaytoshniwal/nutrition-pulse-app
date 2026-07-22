@@ -109,6 +109,11 @@
           </div>
 
           <div class="card">
+            <div class="section-head"><h2>Meal timing</h2><span id="mealTimingTag" class="tag"></span></div>
+            <div id="mealTimingList" class="meal-timing-list"></div>
+          </div>
+
+          <div class="card">
             <h2>All nutrients</h2>
             <div id="macroGrid" class="macro-grid"></div>
           </div>
@@ -299,6 +304,12 @@
                 <option value="pieces">pieces</option>
               </select>
             </div>
+            <div class="field-row time-row">
+              <label class="flex1">Time eaten<input id="foodTime" type="time" required></label>
+              <label class="flex1">Meal<select id="foodMeal"></select></label>
+              <button id="foodTimeNow" type="button" class="chip-button now-chip">Now</button>
+            </div>
+            <p id="foodTimeNote" class="muted micro-note"></p>
             <div class="field-row">
               <button id="calculateFood" type="button" class="chip-button flex1">Calculate</button>
               <button id="manualNutrition" type="button" class="chip-button flex1">Enter manually</button>
@@ -619,8 +630,16 @@
           </div>
 
           <div class="card">
+            <h2>Meal timings</h2>
+            <p class="muted small">Set your usual time range for each meal. Food you log is sorted into these meals by its time, and Daily History shows whether each meal was on time, late or missed.</p>
+            <div id="mealWindowFields" class="meal-window-fields"></div>
+            <button id="resetMealWindows" type="button" class="chip-button">Reset to defaults</button>
+            <p id="mealWindowsMessage" class="form-message"></p>
+          </div>
+
+          <div class="card">
             <h2>Alerts</h2>
-            <p class="muted small">Get a notification if you're eating too fast, too little, or falling behind on protein or water for the time of day.</p>
+            <p class="muted small">Get a notification if you're eating too fast, too little, falling behind on protein or water — or when a meal window passes with nothing logged.</p>
             <div class="section-head">
               <span>Pace alerts</span>
               <button id="alertsToggle" class="theme-switch" type="button"><span class="theme-knob"></span></button>

@@ -1,5 +1,5 @@
 import { NUTRIENTS, QUOTES, FOOD_PICKS, NAV_ITEMS, MORE_TABS, APP_VERSION } from './src/constants.js';
-import { $, num, dayKey, displayDate, dayOfYear, foodKey, standardName } from './src/utils.js';
+import { $, num, dayKey, displayDate, dayOfYear, foodKey, standardName, createElement } from './src/utils.js';
 import {
   loadLocalState, saveLocalState, normalizeState, totalsFor, rolloverIfNewDay,
   archiveCurrentDay, exportBackupFile, readBackupFile, saveIndexedBackup, recoverIndexedBackup, userCacheKey,
@@ -11,6 +11,7 @@ import {
 import { comparableQuantity, calculateFood, findFoodByPhotoHash, searchFoods, scaleFoodDbItem, parseNutritionFromText } from './src/food-lookup.js';
 import { computeImageHash, isSimilarPhoto } from './src/image-hash.js';
 import { checkPaceAlerts, notificationsSupported, requestNotificationPermission, fireNotification } from './src/alerts.js';
+import { classifyMeal, daySummary, STATUS_LABELS, diffLabel, nowHM, formatHM, windowLabel, minutesOf, normalizeMealWindows } from './src/meal-timing.js';
 import { isBarcodeScanSupported, scanBarcodeFromCamera, lookupBarcode } from './src/barcode.js';
 import { watchAuthState, signIn, signUp, signOutUser, resetPassword, loadCloudState, saveCloudState, submitFoodForReview, fetchActivitySync, isAdmin, fetchPendingFoods, approvePendingFood, rejectPendingFood, fetchFoodBank, deleteFoodBankEntry, FIREBASE_PROJECT_ID } from './src/firebase-sync.js';
 import { recognizeTextInImage, parseActivityFromText } from './src/activity-ocr.js';
@@ -90,6 +91,7 @@ function freshForm() {
     calories: '', protein: '', carbs: '', fat: '', fibre: '', sugar: '',
     manualMode: false, editingIndex: null, lookupStatus: '',
     photoDataUrl: '', photoStatus: '', photoHash: null,
+    timeMode: 'now',   // 'now' records the moment of saving; any manual edit switches to 'manual'
   };
 }
 
@@ -323,11 +325,46 @@ function renderToday(derived) {
 
   $('waterLabel').textContent = `${derived.waterMl} / ${derived.waterGoalMl.toLocaleString()} ml`;
   $('waterBar').style.width = `${derived.waterPercent}%`;
+
+  renderMealTiming();
+}
+
+/** Today's live meal-timing card: scheduled window, actual time and status per meal. */
+function renderMealTiming() {
+  const nowMin = state.currentDate === dayKey() ? minutesOf(nowHM()) : null;
+  const summary = daySummary(state.foods, state.mealWindows, nowMin);
+  const list = $('mealTimingList');
+  list.replaceChildren();
+  summary.forEach(m => {
+    const row = document.createElement('div');
+    row.className = 'meal-timing-row';
+    row.innerHTML = `
+      <span class="meal-dot" style="background:${MEAL_DOTS[m.id]}"></span>
+      <div class="mt-meta"><strong>${m.name}</strong><span>${windowLabel(m)}</span></div>
+      <div class="mt-right">
+        <span class="mt-time">${m.time ? `${formatHM(m.time)}${m.diffMin ? ` · ${diffLabel(m.diffMin)}` : ''}` : ''}</span>
+        <span class="st st-${m.status}">${STATUS_LABELS[m.status]}</span>
+      </div>`;
+    list.appendChild(row);
+  });
+  const counts = summary.reduce((acc, m) => ((acc[m.status] = (acc[m.status] || 0) + 1), acc), {});
+  const bits = [];
+  if (counts.ontime) bits.push(`${counts.ontime} on time`);
+  if (counts.late) bits.push(`${counts.late} late`);
+  if (counts.missed) bits.push(`${counts.missed} missed`);
+  $('mealTimingTag').textContent = bits.length ? bits.join(' · ') : 'coming up';
+}
+
+/** Stamps a food entry with when it was eaten and which meal it counts as. */
+function stampFood(food, mealId = null) {
+  food.time = nowHM();
+  food.meal = mealId && state.mealWindows.some(w => w.id === mealId) ? mealId : classifyMeal(food.time, state.mealWindows);
+  return food;
 }
 
 function quickAddFood(recent) {
   const food = { name: recent.name, quantity: recent.quantity, unit: recent.unit, ...Object.fromEntries(NUTRIENTS.map(n => [n, num(recent[n])])) };
-  state.foods.push(food);
+  state.foods.push(stampFood(food));
   pushRecent(food);
   save();
 }
@@ -359,11 +396,46 @@ function pushRecent(food) {
   state.foodFreq[key] = num(state.foodFreq[key]) + 1;
 }
 
+// ---------- Time eaten & meal classification (Add food) ----------
+
+/** Rebuilds the meal <select> (Auto + the four configured meal names), keeping the current choice. */
+function syncMealSelectOptions() {
+  const select = $('foodMeal');
+  if (document.activeElement === select) return;
+  const current = select.value || 'auto';
+  select.replaceChildren(new Option('Auto (by time)', 'auto'));
+  state.mealWindows.forEach(w => select.appendChild(new Option(w.name, w.id)));
+  select.value = [...select.options].some(o => o.value === current) ? current : 'auto';
+}
+
+function updateFoodTimeNote() {
+  const hm = $('foodTime').value || nowHM();
+  const choice = $('foodMeal').value;
+  const id = choice && choice !== 'auto' ? choice : classifyMeal(hm, state.mealWindows);
+  const w = state.mealWindows.find(x => x.id === id);
+  if (!w) { $('foodTimeNote').textContent = ''; return; }
+  const late = minutesOf(hm) > minutesOf(w.end);
+  const mode = ui.form.timeMode === 'now' ? 'Using current time' : 'Time set manually';
+  $('foodTimeNote').textContent = `${mode} — counts as ${w.name} (${windowLabel(w)})${late ? ' · after the window, will show as Taken late' : ''}.`;
+}
+
+$('foodTime').addEventListener('input', () => { ui.form.timeMode = 'manual'; updateFoodTimeNote(); });
+$('foodMeal').addEventListener('change', updateFoodTimeNote);
+$('foodTimeNow').addEventListener('click', () => {
+  ui.form.timeMode = 'now';
+  $('foodTime').value = nowHM();
+  updateFoodTimeNote();
+});
+
 function resetFoodForm() {
   ui.form = freshForm();
   $('foodForm').reset();
   $('foodQuantity').value = 100;
   $('foodUnit').value = 'g';
+  syncMealSelectOptions();
+  $('foodTime').value = nowHM();
+  $('foodMeal').value = 'auto';
+  updateFoodTimeNote();
   setNutrientEditing(false);
   $('formTitle').textContent = 'Add food';
   $('saveFood').textContent = 'Add to today';
@@ -379,9 +451,14 @@ function startEditFood(index) {
   const food = state.foods[index];
   ui.form.editingIndex = index;
   ui.form.manualMode = true;
+  ui.form.timeMode = 'manual';
   $('foodName').value = food.name;
   $('foodQuantity').value = food.quantity || 100;
   $('foodUnit').value = food.unit || 'g';
+  syncMealSelectOptions();
+  $('foodTime').value = food.time || nowHM();
+  $('foodMeal').value = food.meal && state.mealWindows.some(w => w.id === food.meal) ? food.meal : 'auto';
+  updateFoodTimeNote();
   setFoodValues(food);
   setNutrientEditing(true);
   $('formTitle').textContent = 'Edit food';
@@ -397,6 +474,13 @@ function removeFood(index) {
 }
 
 function renderLog(derived) {
+  syncMealSelectOptions();
+  // In "use current time" mode the visible time tracks the clock (the actual
+  // stamp is taken fresh at save) — don't fight the user while they edit it.
+  if (ui.form.timeMode === 'now' && document.activeElement !== $('foodTime')) {
+    $('foodTime').value = nowHM();
+    updateFoodTimeNote();
+  }
   const foods = state.foods;
   $('noFoodsNote').hidden = foods.length > 0;
   const list = $('foodList');
@@ -406,6 +490,14 @@ function renderLog(derived) {
     const meta = document.createElement('div');
     meta.className = 'entry-meta';
     meta.innerHTML = `<strong>${food.name}</strong><p>${food.quantity}${food.unit} · ${Math.round(num(food.calories))} kcal · ${Math.round(num(food.protein) * 10) / 10}g protein</p>`;
+    const w = state.mealWindows.find(x => x.id === food.meal);
+    if (w || food.time) {
+      const late = w && food.time && minutesOf(food.time) > minutesOf(w.end);
+      const timeLine = document.createElement('p');
+      timeLine.className = `entry-time${late ? ' late' : ''}`;
+      timeLine.textContent = `${w ? w.name : 'Meal'} · ${food.time ? formatHM(food.time) : 'time not recorded'}${late ? ` · ${diffLabel(minutesOf(food.time) - minutesOf(w.end))}` : ''}`;
+      meta.appendChild(timeLine);
+    }
     const actions = document.createElement('div');
     actions.className = 'entry-actions';
     const editBtn = document.createElement('button');
@@ -606,6 +698,11 @@ $('foodForm').addEventListener('submit', event => {
   const quantity = num($('foodQuantity').value);
   const unit = $('foodUnit').value;
   const food = { name, quantity, unit };
+  // When the time was never touched, record the actual moment of saving —
+  // "use current time" means now, not when the form was opened.
+  food.time = ui.form.timeMode === 'now' ? nowHM() : ($('foodTime').value || nowHM());
+  const mealChoice = $('foodMeal').value;
+  food.meal = mealChoice && mealChoice !== 'auto' ? mealChoice : classifyMeal(food.time, state.mealWindows);
   const hasAllValues = NUTRIENTS.every(n => {
     const field = $(`food${n[0].toUpperCase()}${n.slice(1)}`);
     food[n] = field.value === '' ? null : num(field.value);
@@ -632,6 +729,11 @@ $('foodForm').addEventListener('submit', event => {
   pushRecent(food);
   save();
   resetFoodForm();
+  // Immediate feedback when the recorded time falls after its meal window.
+  const mealWindow = state.mealWindows.find(w => w.id === food.meal);
+  if (mealWindow && minutesOf(food.time) > minutesOf(mealWindow.end)) {
+    showInAppAlert(`${mealWindow.name} taken late`, `${food.name} at ${formatHM(food.time)} — ${diffLabel(minutesOf(food.time) - minutesOf(mealWindow.end))} for the ${mealWindow.name} window (${windowLabel(mealWindow)}).`);
+  }
 });
 
 $('completeToday').addEventListener('click', () => {
@@ -725,9 +827,21 @@ function renderTrends(derived) {
       ['Sugar', `${Math.round(num(h.sugar) * 10) / 10}g`],
       ['Water', `${Math.round(num(h.water) * 1000)}ml`],
     ];
+    // Meal-timing summary (days archived on 2.34+): scheduled window, actual
+    // time, difference from the window, and the on-time / late / missed status.
+    const meals = Array.isArray(h.meals) ? h.meals : null;
+    const mealRows = meals ? meals.map(m => `
+      <div class="hm-row">
+        <div class="hm-meta"><strong>${m.name}</strong><span>${windowLabel(m)}</span></div>
+        <div class="hm-right">
+          <span class="hm-time">${m.time ? `${formatHM(m.time)}${m.diffMin ? ` · ${diffLabel(m.diffMin)}` : ''}` : ''}</span>
+          <span class="st st-${m.status}">${STATUS_LABELS[m.status] || m.status}</span>
+        </div>
+      </div>`).join('') : '';
     div.innerHTML = `
       <div class="history-top"><strong>${h.id ? displayDate(h.id) : h.date}</strong><strong>${Math.round(num(h.calories))} kcal</strong></div>
-      <div class="history-grid">${nutrientDefs.map(([label, value]) => `<div><span>${label}</span><strong>${value}</strong></div>`).join('')}</div>`;
+      <div class="history-grid">${nutrientDefs.map(([label, value]) => `<div><span>${label}</span><strong>${value}</strong></div>`).join('')}</div>
+      ${mealRows ? `<div class="history-meals">${mealRows}</div>` : ''}`;
     historyList.appendChild(div);
   });
 }
@@ -1159,9 +1273,12 @@ $('resetPreset').addEventListener('click', () => {
   renderMeals();
 });
 
+/** Preset meal names → meal-window ids, so "Brunch: Poha + Tea" still counts as breakfast. */
+const PRESET_MEAL_IDS = { breakfast: 'breakfast', brunch: 'breakfast', lunch: 'lunch', snacks: 'snack', dinner: 'dinner' };
+
 function logPreset(preset) {
   preset.items.forEach(item => {
-    state.foods.push({ ...item });
+    state.foods.push(stampFood({ ...item }, PRESET_MEAL_IDS[String(preset.name).toLowerCase()]));
     pushRecent(item);
   });
   save();
@@ -1448,11 +1565,24 @@ function showInAppAlert(title, body) {
 }
 $('alertBanner').addEventListener('click', () => { $('alertBanner').hidden = true; });
 
-/** Fires each pace alert at most once per day, only while alerts are enabled. */
+/** A missed-meal alert for each window that has closed today with nothing logged. */
+function checkMealAlerts() {
+  if (state.currentDate !== dayKey()) return [];
+  const nowMin = minutesOf(nowHM());
+  return daySummary(state.foods, state.mealWindows, nowMin)
+    .filter(m => m.status === 'missed')
+    .map(m => ({
+      key: `mealMissed-${m.id}`,
+      title: `${m.name} missed?`,
+      body: `Nothing logged for ${m.name} (${windowLabel(m)}). If you ate, add it with the actual time — otherwise it will be recorded as missed.`,
+    }));
+}
+
+/** Fires each pace/meal alert at most once per day, only while alerts are enabled. */
 function checkAndFireAlerts(derived) {
   if (!state.alertsEnabled) return;
   const today = state.currentDate;
-  const alerts = checkPaceAlerts(state, derived.todayTotals, derived.waterMl);
+  const alerts = [...checkPaceAlerts(state, derived.todayTotals, derived.waterMl), ...checkMealAlerts()];
   let dirty = false;
   alerts.forEach(alert => {
     if (state.lastAlertDate[alert.key] === today) return;
@@ -1463,6 +1593,48 @@ function checkAndFireAlerts(derived) {
   });
   if (dirty) saveLocalState(state, currentUser && currentUser.uid);
 }
+
+/** Profile → Meal timings: editable name + time range for each of the four meals. */
+function renderMealWindowSettings() {
+  const wrap = $('mealWindowFields');
+  if (wrap.contains(document.activeElement)) return; // don't rebuild under the user's fingers
+  wrap.replaceChildren();
+  state.mealWindows.forEach(w => {
+    const name = createElement('input', { type: 'text', value: w.name, 'aria-label': 'Meal name' });
+    name.addEventListener('change', () => {
+      const clean = name.value.trim();
+      if (!clean) { name.value = w.name; return; }
+      w.name = clean;
+      save();
+    });
+    const start = createElement('input', { type: 'time', value: w.start, 'aria-label': `${w.name} start` });
+    const end = createElement('input', { type: 'time', value: w.end, 'aria-label': `${w.name} end` });
+    const onTimeChange = () => {
+      if (!start.value || !end.value || minutesOf(end.value) <= minutesOf(start.value)) {
+        start.value = w.start;
+        end.value = w.end;
+        $('mealWindowsMessage').textContent = `${w.name}: the end time must be after the start time.`;
+        setTimeout(() => { $('mealWindowsMessage').textContent = ''; }, 3500);
+        return;
+      }
+      w.start = start.value;
+      w.end = end.value;
+      save();
+    };
+    start.addEventListener('change', onTimeChange);
+    end.addEventListener('change', onTimeChange);
+    wrap.appendChild(createElement('div', { className: 'meal-window-row' }, [
+      name, start, createElement('span', { className: 'mw-sep' }, ['–']), end,
+    ]));
+  });
+}
+
+$('resetMealWindows').addEventListener('click', () => {
+  state.mealWindows = normalizeMealWindows(null);
+  $('mealWindowsMessage').textContent = 'Meal timings reset to the defaults.';
+  setTimeout(() => { $('mealWindowsMessage').textContent = ''; }, 3000);
+  save();
+});
 
 function renderProfile() {
   const hasAvatar = !!state.avatar;
@@ -1486,6 +1658,7 @@ function renderProfile() {
   });
 
   renderBMI();
+  renderMealWindowSettings();
 
   applyTheme();
   $('alertsToggle').classList.toggle('on', !!state.alertsEnabled);
@@ -1606,7 +1779,7 @@ function addPlanMealFoods(meal) {
   meal.items.forEach(item => {
     // A plan item carries display-only extras; the food log stores the standard shape.
     const { serving, booster, ...food } = item;
-    state.foods.push(food);
+    state.foods.push(stampFood(food, meal.slotId));
     pushRecent(food);
   });
   meal.loggedOn = state.currentDate;
@@ -1655,7 +1828,7 @@ function activePlanTodayMeals() {
     return MINE_SLOTS.filter(([slot]) => day[slot].length && !loggedToday[slot]).map(([slot, label]) => ({
       name: label, items: day[slot],
       add: () => {
-        day[slot].forEach(item => { state.foods.push({ ...item }); pushRecent(item); });
+        day[slot].forEach(item => { state.foods.push(stampFood({ ...item }, slot)); pushRecent(item); });
         if (!state.myPlanLog[state.currentDate]) state.myPlanLog[state.currentDate] = {};
         state.myPlanLog[state.currentDate][slot] = true;
       },
@@ -2157,7 +2330,8 @@ $('mineLogDay').addEventListener('click', () => {
   const day = plan.days[selectedDayIndex(plan)];
   const items = mineDayItems(selectedDayIndex(plan));
   if (!items.length) return;
-  items.forEach(item => { state.foods.push({ ...item }); pushRecent(item); });
+  const mineDay = state.myPlan.days[selectedDayIndex(plan)];
+  MINE_SLOTS.forEach(([slot]) => mineDay[slot].forEach(item => { state.foods.push(stampFood({ ...item }, slot)); pushRecent(item); }));
   save();
   $('mineLogMessage').textContent = `${day.name}'s plan (${items.length} foods) is in Today — rings, score and Trends all count it.`;
   setTimeout(() => { $('mineLogMessage').textContent = ''; }, 4000);
