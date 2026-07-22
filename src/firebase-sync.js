@@ -103,8 +103,15 @@ export async function fetchFoodBank() {
  * queue (foodBankPending) first, never straight into the shared bank, so
  * every entry gets the same review before it becomes everyone's default.
  */
-export function submitFoodForReview(key, entry) {
+export async function submitFoodForReview(key, entry) {
   if (!auth.currentUser) return;
+  // If this food is already approved in the shared bank, don't queue it for
+  // review again — otherwise every user who adds an existing product keeps
+  // sending it back to the admin's approval list.
+  try {
+    const approved = await getDoc(doc(db, 'foodBank', key));
+    if (approved.exists()) return;
+  } catch { /* if the check fails, fall through and submit as before */ }
   setDoc(doc(db, 'foodBankPending', key), {
     ...entry,
     submittedBy: auth.currentUser.email,
