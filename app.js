@@ -10,8 +10,13 @@ import {
 } from './src/calculations.js';
 import { comparableQuantity, calculateFood, findFoodByPhotoHash, searchFoods, scaleFoodDbItem, parseNutritionFromText } from './src/food-lookup.js';
 import { computeImageHash, isSimilarPhoto } from './src/image-hash.js';
-import { checkPaceAlerts, notificationsSupported, requestNotificationPermission, fireNotification } from './src/alerts.js';
+import { notificationsSupported, requestNotificationPermission, fireNotification } from './src/alerts.js';
 import { classifyMeal, daySummary, STATUS_LABELS, diffLabel, nowHM, formatHM, windowLabel, minutesOf, normalizeMealWindows } from './src/meal-timing.js';
+import {
+  dueNotifications, addHistory, unreadCount, permissionInfo,
+  NUTRIENT_ALERT_META, CATEGORY_META,
+  ADVANCE_OPTIONS, WATER_FREQ_OPTIONS, THRESHOLD_OPTIONS,
+} from './src/notifications.js';
 import { isBarcodeScanSupported, scanBarcodeFromCamera, lookupBarcode } from './src/barcode.js';
 import { watchAuthState, signIn, signUp, signOutUser, resetPassword, loadCloudState, saveCloudState, submitFoodForReview, fetchActivitySync, isAdmin, fetchPendingFoods, approvePendingFood, rejectPendingFood, fetchFoodBank, deleteFoodBankEntry, FIREBASE_PROJECT_ID } from './src/firebase-sync.js';
 import { recognizeTextInImage, parseActivityFromText } from './src/activity-ocr.js';
@@ -220,6 +225,9 @@ function showTab(tab) {
   // The + button only makes sense on the Today tab, where it opens the food
   // log. It's hidden everywhere else (Profile, Weight, Trends, etc.).
   $('fabLog').hidden = tab !== 'today';
+  // The Notification Center is rendered on demand (and its live SW/permission
+  // status re-probed) so it's fresh whenever it's opened.
+  if (tab === 'notifications') { renderNotificationCenter(); refreshNotifDiag(); }
   renderNav();
   const scroller = document.querySelector('.tab-scroll');
   if (scroller) scroller.scrollTop = 0;
@@ -369,8 +377,8 @@ function quickAddFood(recent) {
   save();
 }
 
-$('addWater50').addEventListener('click', () => { state.water = Number((state.water + 0.05).toFixed(2)); save(); });
-$('addWater250').addEventListener('click', () => { state.water = Number((state.water + 0.25).toFixed(2)); save(); });
+$('addWater50').addEventListener('click', () => { state.water = Number((state.water + 0.05).toFixed(2)); state.lastWaterAt = new Date().toISOString(); save(); });
+$('addWater250').addEventListener('click', () => { state.water = Number((state.water + 0.25).toFixed(2)); state.lastWaterAt = new Date().toISOString(); save(); });
 
 // ---------- Log tab ----------
 
@@ -1446,26 +1454,8 @@ $('restoreFile').addEventListener('change', async event => {
   }
 });
 
-$('alertsToggle').addEventListener('click', async () => {
-  if (!state.alertsEnabled) {
-    // Alerts always work as in-app banners; system notifications are a bonus
-    // where the browser supports and permits them (iOS Safari has no
-    // Notification API in the browser at all, for example).
-    state.alertsEnabled = true;
-    if (notificationsSupported()) {
-      const granted = await requestNotificationPermission();
-      $('alertsMessage').textContent = granted
-        ? 'Pace alerts are on — shown in the app and as notifications.'
-        : 'Pace alerts are on — shown inside the app. (System notifications are blocked; allow them in browser settings if you also want those.)';
-    } else {
-      $('alertsMessage').textContent = 'Pace alerts are on — shown inside the app while it’s open.';
-    }
-  } else {
-    state.alertsEnabled = false;
-    $('alertsMessage').textContent = '';
-  }
-  save();
-});
+$('openNotifCenter').addEventListener('click', () => showTab('notifications'));
+$('backMoreNotifications').addEventListener('click', () => showTab('more'));
 
 // ---------- Admin: food bank moderation ----------
 
@@ -1565,33 +1555,473 @@ function showInAppAlert(title, body) {
 }
 $('alertBanner').addEventListener('click', () => { $('alertBanner').hidden = true; });
 
-/** A missed-meal alert for each window that has closed today with nothing logged. */
-function checkMealAlerts() {
-  if (state.currentDate !== dayKey()) return [];
-  const nowMin = minutesOf(nowHM());
-  return daySummary(state.foods, state.mealWindows, nowMin)
-    .filter(m => m.status === 'missed')
-    .map(m => ({
-      key: `mealMissed-${m.id}`,
-      title: `${m.name} missed?`,
-      body: `Nothing logged for ${m.name} (${windowLabel(m)}). If you ate, add it with the actual time — otherwise it will be recorded as missed.`,
-    }));
+/** Sound/vibration options for a system notification, from the user's preferences. */
+function notifDeliveryOptions() {
+  const p = state.notifPrefs.prefs;
+  return { silent: !p.sound, vibrate: p.vibrate ? [80, 40, 80] : undefined };
 }
 
-/** Fires each pace/meal alert at most once per day, only while alerts are enabled. */
-function checkAndFireAlerts(derived) {
-  if (!state.alertsEnabled) return;
-  const today = state.currentDate;
-  const alerts = [...checkPaceAlerts(state, derived.todayTotals, derived.waterMl), ...checkMealAlerts()];
-  let dirty = false;
-  alerts.forEach(alert => {
-    if (state.lastAlertDate[alert.key] === today) return;
-    state.lastAlertDate[alert.key] = today;
-    dirty = true;
-    showInAppAlert(alert.title, alert.body);
-    fireNotification(alert.title, alert.body);
+/**
+ * Records a notification to the in-app history (so it's visible even if the OS
+ * blocks it), shows the in-app banner, fires the system notification, and logs
+ * delivery status for the diagnostics view.
+ */
+function deliverNotification({ category, title, body, tone }, { inApp = true } = {}) {
+  state.notifications = addHistory(state.notifications, { category, title, body, tone });
+  if (inApp) showInAppAlert(title, body);
+  return fireNotification(title, body, { tag: `np-${category}`, ...notifDeliveryOptions() }).then(res => {
+    const at = new Date().toISOString();
+    if (res && res.ok) state.notifDiag.lastSent = { at, title, reason: res.reason };
+    else state.notifDiag.lastFailed = { at, title, reason: (res && res.reason) || 'unknown' };
+    saveLocalState(state, currentUser && currentUser.uid);
+    return res;
   });
-  if (dirty) saveLocalState(state, currentUser && currentUser.uid);
+}
+
+/**
+ * Runs the notification engine for the current moment and fires whatever is due,
+ * respecting the master switch, per-category switches, quiet hours, dedupe and
+ * the daily cap. Called from render() and a periodic timer, so a food/water
+ * change (which routes through save() → render()) recomputes alerts immediately.
+ */
+function checkAndFireAlerts(derived) {
+  const prefs = state.notifPrefs;
+  if (!prefs.enabled) return;
+  if (state.currentDate !== dayKey()) return; // reactive alerts are for today only
+  const today = state.currentDate;
+  const due = dueNotifications({
+    state, prefs, now: new Date(),
+    todayTotals: derived.todayTotals,
+    waterMl: derived.waterMl,
+    waterGoalMl: derived.waterGoalMl,
+    score: derived.weeklyScore,
+    log: state.notifLog,
+  });
+  if (!due.length) return;
+
+  const firedToday = state.notifications.filter(n =>
+    dayKey(new Date(n.at)) === today && n.category !== 'test' && n.category !== 'system').length;
+  let budget = Math.max(0, num(prefs.prefs.maxPerDay) - firedToday);
+  let dirty = false;
+  for (const item of due) {
+    if (budget <= 0) break;
+    state.notifLog[item.key] = new Date().toISOString();
+    deliverNotification(item);
+    budget -= 1;
+    dirty = true;
+  }
+  if (dirty) {
+    saveLocalState(state, currentUser && currentUser.uid);
+    if (currentUser) saveCloudState(currentUser.uid, state);
+    renderMore();
+    if (ui.tab === 'notifications') renderNotificationCenter();
+  }
+}
+
+// ---------- Notification Center ----------
+
+const NC_SECTIONS = { meal: false, water: false, nutrient: false, goals: false, daily: false, weekly: false, prefs: false, history: true, diag: false };
+const TONE_ICON = { good: '✓', warn: '!', bad: '×', info: '•' };
+const DOW_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+function timeAgo(iso) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const min = Math.round(diff / 60000);
+  if (min < 1) return 'just now';
+  if (min < 60) return `${min} min ago`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `${hr} h ago`;
+  const day = Math.round(hr / 24);
+  if (day < 7) return `${day} d ago`;
+  return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
+
+/** A green pill switch; stops propagation so it never triggers a card's expand. */
+function ncSwitch(on, onChange) {
+  const btn = createElement('button', { type: 'button', className: `theme-switch${on ? ' on' : ''}`, 'aria-pressed': String(on) }, [createElement('span', { className: 'theme-knob' })]);
+  btn.addEventListener('click', event => { event.stopPropagation(); onChange(!on); });
+  return btn;
+}
+
+function ncSubRow({ title, sub, on, onChange, disabled }) {
+  const sw = ncSwitch(on, v => { if (!disabled) onChange(v); });
+  return createElement('div', { className: `nc-subrow${disabled ? ' nc-dim' : ''}` }, [
+    createElement('div', { className: 'nc-subtx' }, [createElement('strong', {}, [title]), ...(sub ? [createElement('span', {}, [sub])] : [])]),
+    sw,
+  ]);
+}
+
+/** Preset chips + a Custom number input, all writing the same numeric value. */
+function ncChips({ options, value, unit, min, max, onPick, disabled }) {
+  const chips = options.map(opt => {
+    const chip = createElement('button', { type: 'button', className: `nc-chip${value === opt ? ' on' : ''}` }, [`${opt}${unit ? ` ${unit}` : ''}`]);
+    chip.addEventListener('click', () => { if (!disabled) onPick(opt); });
+    return chip;
+  });
+  const custom = createElement('input', { type: 'number', className: `nc-num${options.includes(value) ? '' : ' on'}`, value: String(value), min: String(min), max: String(max), inputmode: 'numeric', 'aria-label': 'Custom value' });
+  custom.addEventListener('change', () => {
+    let v = num(custom.value);
+    if (v < min) v = min;
+    if (v > max) v = max;
+    if (!disabled) onPick(v);
+  });
+  return createElement('div', { className: `nc-chips${disabled ? ' nc-dim' : ''}` }, [...chips, createElement('label', { className: 'nc-customwrap' }, [custom, ...(unit ? [createElement('span', {}, [unit])] : [])])]);
+}
+
+function ncTimeRow({ title, value, onChange, disabled }) {
+  const input = createElement('input', { type: 'time', className: 'nc-time', value, disabled: disabled ? 'disabled' : undefined });
+  input.addEventListener('change', () => { if (input.value && !disabled) onChange(input.value); });
+  return createElement('div', { className: `nc-subrow${disabled ? ' nc-dim' : ''}` }, [createElement('div', { className: 'nc-subtx' }, [createElement('strong', {}, [title])]), input]);
+}
+
+/** A collapsible category card: icon, title, subtitle, always-visible section switch, expandable body. */
+function ncCard({ id, icon, tone, title, sub, on, onToggle, buildBody }) {
+  const chev = createElement('span', { className: `nc-chev${NC_SECTIONS[id] ? ' open' : ''}` }, ['›']);
+  // A div (not a button) because it contains the switch button — nested buttons are invalid.
+  const head = createElement('div', { className: 'nc-cardhead', role: 'button', tabindex: '0', 'aria-expanded': String(!!NC_SECTIONS[id]) }, [
+    createElement('span', { className: `nc-ic nc-ic-${tone}` }, [icon]),
+    createElement('div', { className: 'nc-headtx' }, [createElement('strong', {}, [title]), ...(sub ? [createElement('span', {}, [sub])] : [])]),
+    ...(onToggle ? [ncSwitch(on, onToggle)] : []),
+    chev,
+  ]);
+  const toggleExpand = () => { NC_SECTIONS[id] = !NC_SECTIONS[id]; renderNotificationCenter(); };
+  head.addEventListener('click', toggleExpand);
+  head.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleExpand(); } });
+  const card = createElement('div', { className: `card nc-card${on ? '' : ' nc-cardoff'}` }, [head]);
+  if (NC_SECTIONS[id] && buildBody) {
+    const body = createElement('div', { className: 'nc-cardbody' });
+    buildBody(body);
+    card.appendChild(body);
+  }
+  return card;
+}
+
+function ncSet(path, value) {
+  // path like 'meal.advanceMin' — mutate prefs then save (save() re-renders).
+  const parts = path.split('.');
+  let obj = state.notifPrefs;
+  for (let i = 0; i < parts.length - 1; i++) obj = obj[parts[i]];
+  obj[parts[parts.length - 1]] = value;
+  save();
+}
+
+async function setNotifMaster(on) {
+  state.notifPrefs.enabled = on;
+  state.alertsEnabled = on;
+  if (on && notificationsSupported() && Notification.permission === 'default') {
+    await requestNotificationPermission();
+  }
+  save();
+}
+
+function renderNotificationCenter() {
+  const root = $('notifCenter');
+  if (!root) return;
+  root.replaceChildren();
+  const prefs = state.notifPrefs;
+  const derived = computeDerived();
+
+  // Header
+  root.appendChild(createElement('div', { className: 'nc-header' }, [
+    createElement('h1', { className: 'tab-title' }, ['Notification Center']),
+    createElement('p', { className: 'muted small' }, ['Manage your meal, water, nutrient and nutrition summary alerts.']),
+  ]));
+
+  // Master switch
+  const master = createElement('div', { className: 'card nc-master' }, [
+    createElement('div', { className: 'nc-subtx' }, [createElement('strong', {}, ['Enable Notifications']), createElement('span', {}, [prefs.enabled ? 'Alerts are on for this account.' : 'All alerts are paused. Your settings below stay saved.'])]),
+    ncSwitch(prefs.enabled, setNotifMaster),
+  ]);
+  root.appendChild(master);
+
+  // Permission status
+  root.appendChild(buildPermissionCard());
+
+  // Category cards live in a wrapper that dims when the master switch is off.
+  const sections = createElement('div', { className: `nc-sections${prefs.enabled ? '' : ' nc-dimall'}` });
+  sections.appendChild(buildMealCard(prefs));
+  sections.appendChild(buildWaterCard(prefs, derived));
+  sections.appendChild(buildNutrientCard(prefs));
+  sections.appendChild(buildGoalsCard(prefs));
+  sections.appendChild(buildDailyCard(prefs));
+  sections.appendChild(buildWeeklyCard(prefs));
+  sections.appendChild(buildPrefsCard(prefs));
+  root.appendChild(sections);
+
+  // History + (admin) diagnostics
+  root.appendChild(buildHistoryCard());
+  if (isAdmin()) root.appendChild(buildDiagnosticsCard());
+}
+
+function buildPermissionCard() {
+  const info = permissionInfo();
+  const toneClass = info.state === 'granted' ? 'good' : info.state === 'denied' ? 'bad' : 'warn';
+  const card = createElement('div', { className: 'card nc-perm' }, [
+    createElement('div', { className: 'nc-permhead' }, [
+      createElement('span', { className: `nc-badge nc-badge-${toneClass}` }, [info.label]),
+    ]),
+    createElement('p', { className: 'muted small' }, [info.detail]),
+  ]);
+  if (info.canRequest) {
+    const btn = createElement('button', { type: 'button', className: 'btn-primary' }, ['Enable Notifications']);
+    btn.addEventListener('click', async () => { await requestNotificationPermission(); renderNotificationCenter(); });
+    card.appendChild(btn);
+  } else if (info.state === 'denied' || info.state === 'unavailable') {
+    card.appendChild(createElement('p', { className: 'nc-note' }, ['To allow: open your browser or phone settings for this site and turn Notifications on, then reopen this page.']));
+  }
+  card.appendChild(createElement('p', { className: 'nc-note' }, ['Alerts are delivered while the app is open or running in the background. For alerts when the app is fully closed, add it to your Home Screen — full background push needs a notification server, which isn’t enabled yet.']));
+  return card;
+}
+
+function buildMealCard(prefs) {
+  const m = prefs.meal;
+  return ncCard({
+    id: 'meal', icon: '🍽', tone: 'accent', title: 'Meal Reminders',
+    sub: m.enabled ? `Reminders ${m.advanceMin} min before each meal` : 'Off',
+    on: m.enabled, onToggle: v => ncSet('meal.enabled', v),
+    buildBody(body) {
+      const dim = !m.enabled;
+      body.appendChild(ncSubRow({ title: 'Remind before a meal window starts', on: m.beforeStart, disabled: dim, onChange: v => ncSet('meal.beforeStart', v) }));
+      body.appendChild(ncSubRow({ title: 'Notify when the meal window begins', on: m.atStart, disabled: dim, onChange: v => ncSet('meal.atStart', v) }));
+      body.appendChild(ncSubRow({ title: 'Remind if no food is recorded during the window', on: m.duringNoFood, disabled: dim, onChange: v => ncSet('meal.duringNoFood', v) }));
+      body.appendChild(ncSubRow({ title: 'Missed-meal alert after the window ends', on: m.missedAfter, disabled: dim, onChange: v => ncSet('meal.missedAfter', v) }));
+      body.appendChild(ncSubRow({ title: 'Stop reminders once food is recorded', on: m.stopWhenLogged, disabled: dim, onChange: v => ncSet('meal.stopWhenLogged', v) }));
+      body.appendChild(createElement('p', { className: 'nc-lbl' }, ['Advance reminder time']));
+      body.appendChild(ncChips({ options: ADVANCE_OPTIONS, value: m.advanceMin, unit: 'min', min: 1, max: 120, disabled: dim, onPick: v => ncSet('meal.advanceMin', v) }));
+      body.appendChild(createElement('p', { className: 'nc-lbl' }, ['Your meal windows']));
+      state.mealWindows.forEach(w => {
+        body.appendChild(createElement('div', { className: 'nc-meal' }, [
+          createElement('span', { className: 'nc-ic nc-ic-accent' }, [MEAL_ICONS[w.id] || '🍽']),
+          createElement('div', { className: 'nc-headtx' }, [createElement('strong', {}, [w.name]), createElement('span', { className: 'nc-mealtime' }, [`${formatHM(w.start)} – ${formatHM(w.end)}`])]),
+        ]));
+      });
+      const edit = createElement('button', { type: 'button', className: 'chip-button' }, ['Edit Meal Timings']);
+      edit.addEventListener('click', () => showTab('profile'));
+      body.appendChild(edit);
+    },
+  });
+}
+
+function buildWaterCard(prefs, derived) {
+  const wr = prefs.water;
+  const consumedL = Math.round(derived.waterMl / 100) / 10;
+  const goalL = Math.round(derived.waterGoalMl / 100) / 10;
+  const remainL = Math.max(0, Math.round((derived.waterGoalMl - derived.waterMl) / 100) / 10);
+  return ncCard({
+    id: 'water', icon: '💧', tone: 'water', title: 'Water Reminders',
+    sub: wr.enabled ? `Every ${wr.everyMin} min, ${formatHM(wr.startHM)}–${formatHM(wr.endHM)}` : 'Off',
+    on: wr.enabled, onToggle: v => ncSet('water.enabled', v),
+    buildBody(body) {
+      const dim = !wr.enabled;
+      body.appendChild(createElement('div', { className: 'nc-stats' }, [
+        ncStat('Target', `${goalL} L`),
+        ncStat('Consumed', `${consumedL} L`),
+        ncStat('Remaining', `${remainL} L`),
+      ]));
+      body.appendChild(createElement('p', { className: 'nc-lbl' }, ['Reminder frequency']));
+      body.appendChild(ncChips({ options: WATER_FREQ_OPTIONS, value: wr.everyMin, unit: 'min', min: 15, max: 240, disabled: dim, onPick: v => ncSet('water.everyMin', v) }));
+      body.appendChild(createElement('p', { className: 'nc-lbl' }, ['Active reminder hours']));
+      body.appendChild(ncTimeRow({ title: 'From', value: wr.startHM, disabled: dim, onChange: v => ncSet('water.startHM', v) }));
+      body.appendChild(ncTimeRow({ title: 'To', value: wr.endHM, disabled: dim, onChange: v => ncSet('water.endHM', v) }));
+      body.appendChild(ncSubRow({ title: 'Stop reminders when target is reached', on: wr.stopWhenMet, disabled: dim, onChange: v => ncSet('water.stopWhenMet', v) }));
+    },
+  });
+}
+
+function ncStat(label, value) {
+  return createElement('div', { className: 'nc-stat' }, [createElement('span', { className: 'nc-statv' }, [value]), createElement('span', { className: 'nc-statl' }, [label])]);
+}
+
+function buildNutrientCard(prefs) {
+  const n = prefs.nutrient;
+  return ncCard({
+    id: 'nutrient', icon: '🥗', tone: 'accent', title: 'Nutrient Alerts',
+    sub: n.enabled ? `Warn at ${n.threshold}% of target` : 'Off',
+    on: n.enabled, onToggle: v => ncSet('nutrient.enabled', v),
+    buildBody(body) {
+      const dim = !n.enabled;
+      body.appendChild(createElement('p', { className: 'nc-lbl' }, ['Alert threshold']));
+      body.appendChild(ncChips({ options: THRESHOLD_OPTIONS, value: n.threshold, unit: '%', min: 50, max: 100, disabled: dim, onPick: v => ncSet('nutrient.threshold', v) }));
+      body.appendChild(createElement('p', { className: 'nc-lbl' }, ['Alert me about']));
+      NUTRIENT_ALERT_META.forEach(meta => {
+        const target = num(state.targets[meta.id]);
+        const kind = meta.kind === 'goal' ? 'behind / achieved' : meta.kind === 'both' ? 'nearing / over' : 'nearing / over limit';
+        body.appendChild(ncSubRow({
+          title: meta.label,
+          sub: target > 0 ? `${kind} · target ${target}${meta.unit === 'kcal' ? ' kcal' : ` ${meta.unit}`}` : 'No daily target set',
+          on: !!n.items[meta.id], disabled: dim || target <= 0,
+          onChange: v => { state.notifPrefs.nutrient.items[meta.id] = v; save(); },
+        }));
+      });
+      body.appendChild(createElement('p', { className: 'nc-note' }, ['Nutrient alerts recompute every time you add, edit or delete a food.']));
+    },
+  });
+}
+
+function buildGoalsCard(prefs) {
+  const g = prefs.goals;
+  return ncCard({
+    id: 'goals', icon: '🏆', tone: 'accent', title: 'Goal Achievement',
+    sub: g.enabled ? 'Celebrate targets as you hit them' : 'Off',
+    on: g.enabled, onToggle: v => ncSet('goals.enabled', v),
+    buildBody(body) {
+      const dim = !g.enabled;
+      [['water', 'Water target achieved'], ['protein', 'Protein target achieved'], ['fibre', 'Fibre target achieved'], ['calories', 'Calorie goal completed'], ['allGoals', 'All major daily goals achieved'], ['scoreMilestone', 'Nutrition score milestone (90+)']]
+        .forEach(([key, label]) => body.appendChild(ncSubRow({ title: label, on: !!g[key], disabled: dim, onChange: v => ncSet(`goals.${key}`, v) })));
+      body.appendChild(createElement('p', { className: 'nc-note' }, ['Each goal notifies at most once per day.']));
+    },
+  });
+}
+
+function buildDailyCard(prefs) {
+  const d = prefs.daily;
+  return ncCard({
+    id: 'daily', icon: '🌙', tone: 'water', title: 'Daily Nutrition Summary',
+    sub: d.enabled ? `At ${formatHM(d.timeHM)}` : 'Off',
+    on: d.enabled, onToggle: v => ncSet('daily.enabled', v),
+    buildBody(body) {
+      const dim = !d.enabled;
+      body.appendChild(ncTimeRow({ title: 'Send summary at', value: d.timeHM, disabled: dim, onChange: v => ncSet('daily.timeHM', v) }));
+      body.appendChild(createElement('p', { className: 'nc-note' }, ['A recap of calories, protein, water, meal timing and your nutrition score — with a suggestion for tomorrow. Never sent before your chosen time.']));
+    },
+  });
+}
+
+function buildWeeklyCard(prefs) {
+  const w = prefs.weekly;
+  return ncCard({
+    id: 'weekly', icon: '📊', tone: 'accent', title: 'Weekly Nutrition Summary',
+    sub: w.enabled ? `${DOW_NAMES[w.dow]} at ${formatHM(w.timeHM)}` : 'Off',
+    on: w.enabled, onToggle: v => ncSet('weekly.enabled', v),
+    buildBody(body) {
+      const dim = !w.enabled;
+      const sel = createElement('select', { className: 'nc-sel', disabled: dim ? 'disabled' : undefined });
+      DOW_NAMES.forEach((name, i) => {
+        const o = createElement('option', { value: String(i) }, [name]);
+        if (i === w.dow) o.setAttribute('selected', 'selected');
+        sel.appendChild(o);
+      });
+      sel.addEventListener('change', () => ncSet('weekly.dow', num(sel.value)));
+      body.appendChild(createElement('div', { className: 'nc-subrow' }, [createElement('div', { className: 'nc-subtx' }, [createElement('strong', {}, ['Day of the week'])]), sel]));
+      body.appendChild(ncTimeRow({ title: 'Delivery time', value: w.timeHM, disabled: dim, onChange: v => ncSet('weekly.timeHM', v) }));
+      body.appendChild(createElement('p', { className: 'nc-note' }, ['Averages for calories, protein and water, meal-timing adherence, missed meals and your average score versus the week before.']));
+    },
+  });
+}
+
+function buildPrefsCard(prefs) {
+  const p = prefs.prefs;
+  return ncCard({
+    id: 'prefs', icon: '⚙️', tone: 'muted', title: 'Notification Preferences',
+    sub: 'Sound, vibration, quiet hours & limits',
+    on: true, onToggle: null,
+    buildBody(body) {
+      body.appendChild(ncSubRow({ title: 'Notification sound', on: p.sound, onChange: v => ncSet('prefs.sound', v) }));
+      body.appendChild(ncSubRow({ title: 'Vibration', on: p.vibrate, onChange: v => ncSet('prefs.vibrate', v) }));
+      body.appendChild(ncSubRow({ title: 'Show preview on lock screen', sub: 'Honoured by your device where supported', on: p.lockPreview, onChange: v => ncSet('prefs.lockPreview', v) }));
+      body.appendChild(ncSubRow({ title: 'Quiet Hours (Do Not Disturb)', on: p.quietEnabled, onChange: v => ncSet('prefs.quietEnabled', v) }));
+      body.appendChild(ncTimeRow({ title: 'Quiet from', value: p.quietStartHM, disabled: !p.quietEnabled, onChange: v => ncSet('prefs.quietStartHM', v) }));
+      body.appendChild(ncTimeRow({ title: 'Quiet until', value: p.quietEndHM, disabled: !p.quietEnabled, onChange: v => ncSet('prefs.quietEndHM', v) }));
+      body.appendChild(createElement('p', { className: 'nc-lbl' }, ['Daily maximum notifications']));
+      body.appendChild(ncChips({ options: [6, 12, 20], value: p.maxPerDay, unit: '', min: 1, max: 50, onPick: v => ncSet('prefs.maxPerDay', v) }));
+      const test = createElement('button', { type: 'button', className: 'btn-primary' }, ['🔔 Send Test Notification']);
+      const msg = createElement('p', { className: 'nc-note', id: 'ncTestMsg' }, ['']);
+      test.addEventListener('click', async () => {
+        msg.textContent = 'Sending…';
+        const res = await deliverNotification({ category: 'test', title: 'Test notification', body: 'If you can see this, notifications are working. 🎉', tone: 'info' });
+        msg.textContent = res && res.ok
+          ? 'Sent — check your notification tray. It’s also in Recent Notifications below.'
+          : `Couldn’t show a system notification (${(res && res.reason) || 'unknown'}). It was still added to Recent Notifications below.`;
+        renderMore();
+      });
+      body.appendChild(test);
+      body.appendChild(msg);
+    },
+  });
+}
+
+function buildHistoryCard() {
+  const list = state.notifications || [];
+  const unread = unreadCount(list);
+  const head = createElement('div', { className: 'section-head' }, [
+    createElement('h2', {}, [`Recent Notifications${unread ? ` · ${unread} new` : ''}`]),
+  ]);
+  const card = createElement('div', { className: 'card' }, [head]);
+  if (!list.length) {
+    card.appendChild(createElement('p', { className: 'muted small empty-note' }, ['No notifications yet. When alerts fire, they’ll be listed here.']));
+    return card;
+  }
+  const actions = createElement('div', { className: 'field-row' }, []);
+  const markAll = createElement('button', { type: 'button', className: 'chip-button flex1' }, ['Mark all as read']);
+  markAll.addEventListener('click', () => { state.notifications = list.map(n => ({ ...n, read: true })); save(); });
+  const clear = createElement('button', { type: 'button', className: 'chip-button danger flex1' }, ['Clear history']);
+  clear.addEventListener('click', () => { state.notifications = []; save(); });
+  actions.append(markAll, clear);
+  card.appendChild(actions);
+
+  const ul = createElement('div', { className: 'nc-history' });
+  list.forEach(nf => {
+    const meta = CATEGORY_META[nf.category] || CATEGORY_META.system;
+    const row = createElement('button', { type: 'button', className: `nc-histrow${nf.read ? '' : ' nc-unread'}` }, [
+      createElement('span', { className: `nc-ic nc-ic-${nf.tone || 'info'}` }, [meta.icon]),
+      createElement('div', { className: 'nc-histtx' }, [
+        createElement('strong', {}, [nf.title]),
+        createElement('span', { className: 'nc-histbody' }, [nf.body]),
+        createElement('span', { className: 'nc-histtime' }, [`${meta.label} · ${timeAgo(nf.at)}`]),
+      ]),
+      ...(nf.read ? [] : [createElement('span', { className: 'nc-dot' }, [])]),
+    ]);
+    row.addEventListener('click', () => {
+      if (!nf.read) { nf.read = true; save(); }
+    });
+    ul.appendChild(row);
+  });
+  card.appendChild(ul);
+  return card;
+}
+
+function buildDiagnosticsCard() {
+  const d = state.notifDiag || {};
+  const info = permissionInfo();
+  const ua = navigator.userAgent || '';
+  const platform = /Android/.test(ua) ? 'Android' : /iP(hone|ad|od)/.test(ua) ? 'iOS' : /Windows/.test(ua) ? 'Windows' : /Mac/.test(ua) ? 'macOS' : 'Other';
+  const rows = [
+    ['User', (currentUser && currentUser.email) || '—'],
+    ['Device / platform', `${platform}`],
+    ['Permission', info.label],
+    ['Service worker', d.sw || 'checking…'],
+    ['Push subscription', d.push === 'subscribed' ? 'Subscribed' : 'None (needs push server)'],
+    ['Last successful', d.lastSent ? `${d.lastSent.title} · ${timeAgo(d.lastSent.at)} (${d.lastSent.reason})` : '—'],
+    ['Last failed', d.lastFailed ? `${d.lastFailed.title} · ${timeAgo(d.lastFailed.at)} (${d.lastFailed.reason})` : '—'],
+  ];
+  const card = createElement('div', { className: 'card nc-diag' }, [
+    createElement('div', { className: 'section-head' }, [createElement('h2', {}, ['Diagnostics']), createElement('span', { className: 'tag' }, ['Admin'])]),
+    createElement('p', { className: 'muted small' }, ['This device’s notification health. Per-user remote diagnostics would need a server function to read every account.']),
+  ]);
+  const table = createElement('div', { className: 'nc-diagrows' });
+  rows.forEach(([k, v]) => table.appendChild(createElement('div', { className: 'nc-diagrow' }, [createElement('span', { className: 'nc-diagk' }, [k]), createElement('span', { className: 'nc-diagv' }, [String(v)])])));
+  card.appendChild(table);
+  const test = createElement('button', { type: 'button', className: 'chip-button' }, ['Send test notification']);
+  test.addEventListener('click', async () => { await deliverNotification({ category: 'test', title: 'Admin test', body: 'Diagnostics test notification.', tone: 'info' }); renderNotificationCenter(); });
+  card.appendChild(test);
+  return card;
+}
+
+/** Probes live service-worker / push state for the diagnostics view, then refreshes it. */
+async function refreshNotifDiag() {
+  try {
+    const reg = await navigator.serviceWorker.getRegistration();
+    state.notifDiag.sw = reg ? (reg.active ? 'active' : 'registered') : 'none';
+    if (reg && reg.pushManager) {
+      try { state.notifDiag.push = (await reg.pushManager.getSubscription()) ? 'subscribed' : 'none'; }
+      catch { state.notifDiag.push = 'unknown'; }
+    } else {
+      state.notifDiag.push = 'unsupported';
+    }
+  } catch {
+    state.notifDiag.sw = 'error';
+  }
+  if (ui.tab === 'notifications') renderNotificationCenter();
 }
 
 /** Profile → Meal timings: editable name + time range for each of the four meals. */
@@ -1675,7 +2105,6 @@ function renderProfile() {
   renderMealWindowSettings();
 
   applyTheme();
-  $('alertsToggle').classList.toggle('on', !!state.alertsEnabled);
   renderWatchSyncInstructions();
   $('adminCard').hidden = !isAdmin();
   $('adminFoodBankCard').hidden = !isAdmin();
@@ -2381,6 +2810,13 @@ function renderMore() {
   group('Tracking');
   menu.appendChild(moreRow({ icon: '🔥', title: 'Activity', sub: 'Steps, burn & exercise', onTap: () => showTab('activity') }));
   menu.appendChild(moreRow({ icon: '🍲', title: 'Meals', sub: `Meal presets · ${state.mealPresets.length}`, onTap: () => showTab('meals') }));
+  const unread = unreadCount(state.notifications);
+  menu.appendChild(moreRow({
+    icon: '🔔', title: 'Notification Center',
+    sub: state.notifPrefs.enabled ? 'Meal, water, nutrient & summary alerts' : 'Alerts are off — tap to set up',
+    pill: unread ? { on: true, label: String(unread) } : null,
+    onTap: () => showTab('notifications'),
+  }));
 
   group('Setup');
   const current = latestWeight(state);
@@ -2474,6 +2910,7 @@ function render() {
   renderPlans();
   renderMore();
   renderProfile();
+  if (ui.tab === 'notifications') renderNotificationCenter();
   renderNav();
   checkAndFireAlerts(derived);
 }
@@ -2502,10 +2939,11 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) onFo
 window.addEventListener('focus', applyTheme);
 window.addEventListener('pageshow', applyTheme);
 
-// Pace alerts depend on the time of day, so re-check periodically while the app stays open.
+// Meal/water/time-based alerts depend on the clock, so re-check periodically
+// while the app stays open (the engine's own dedupe + spacing prevents repeats).
 setInterval(() => {
-  if (currentUser && state.alertsEnabled) checkAndFireAlerts(computeDerived());
-}, 30 * 60 * 1000);
+  if (currentUser && state.notifPrefs.enabled) checkAndFireAlerts(computeDerived());
+}, 5 * 60 * 1000);
 
 watchAuthState(async user => {
   currentUser = user;

@@ -709,3 +709,99 @@ label { display: flex; flex-direction: column; gap: 5px; font-size: .72rem; colo
 .mw-timebox input:focus { border: 0; }
 .mw-sep { color: var(--muted); font-weight: 700; flex: 0 0 auto; }
 .mw-reset { width: 100%; padding: 12px; border-radius: 12px; font-size: .8rem; }
+
+/* Notification Center */
+.notif-center { display: flex; flex-direction: column; gap: 12px; }
+.nc-header { display: flex; flex-direction: column; gap: 2px; margin-top: 2px; }
+.nc-header .tab-title { margin: 0; }
+.nc-header p { margin: 0; }
+
+.nc-master { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; }
+.nc-master .nc-subtx strong { font-size: 1rem; }
+
+.nc-subtx { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.nc-subtx strong { font-family: 'Sora', sans-serif; font-weight: 700; font-size: .84rem; color: var(--ink); }
+.nc-subtx span { font-size: .68rem; color: var(--muted); }
+
+/* Category icon circles */
+.nc-ic { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; font-size: 1.05rem; flex: none; }
+.nc-ic-accent, .nc-ic-good { background: var(--chip-bg); color: var(--accent); }
+.nc-ic-water, .nc-ic-info { background: var(--water-soft); color: var(--water); }
+.nc-ic-muted { background: var(--track); color: var(--muted); }
+.nc-ic-warn { background: rgba(201, 138, 61, .18); color: var(--fat); }
+.nc-ic-bad { background: var(--danger-soft); color: var(--danger); }
+
+/* Permission card */
+.nc-perm { gap: 10px; }
+.nc-permhead { display: flex; align-items: center; gap: 8px; }
+.nc-badge { font-size: .72rem; font-weight: 800; padding: 5px 11px; border-radius: 999px; }
+.nc-badge-good { background: var(--chip-bg); color: var(--accent); }
+.nc-badge-warn { background: rgba(201, 138, 61, .18); color: var(--fat); }
+.nc-badge-bad { background: var(--danger-soft); color: var(--danger); }
+.nc-note { font-size: .68rem; color: var(--muted); margin: 0; line-height: 1.45; }
+
+/* Section wrapper dimming when master is off */
+.nc-sections { display: flex; flex-direction: column; gap: 12px; transition: opacity .2s ease; }
+.nc-dimall { opacity: .55; }
+
+/* Collapsible category cards */
+.nc-card { padding: 0; gap: 0; overflow: hidden; }
+.nc-cardhead { display: flex; align-items: center; gap: 12px; padding: 15px 16px; cursor: pointer; user-select: none; }
+.nc-cardhead:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.nc-headtx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.nc-headtx strong { font-family: 'Sora', sans-serif; font-weight: 700; font-size: .92rem; color: var(--ink); }
+.nc-headtx span { font-size: .68rem; color: var(--muted); }
+.nc-chev { color: var(--muted); font-size: 1.2rem; transition: transform .2s ease; flex: none; }
+.nc-chev.open { transform: rotate(90deg); }
+.nc-cardoff .nc-ic { filter: grayscale(.5); opacity: .8; }
+.nc-cardbody { display: flex; flex-direction: column; gap: 10px; padding: 4px 16px 16px; border-top: 1px solid var(--line); }
+.nc-cardbody > .nc-lbl:first-child { margin-top: 8px; }
+
+/* Sub-rows inside a card body */
+.nc-subrow { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.nc-subrow:last-child { border-bottom: 0; }
+.nc-dim { opacity: .45; pointer-events: none; }
+.nc-lbl { font-size: .6rem; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; color: var(--accent); margin: 10px 0 0; }
+
+/* Preset chips + custom number */
+.nc-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.nc-chip { padding: 8px 13px; border-radius: 999px; border: 1px solid var(--line); background: var(--input-bg); color: var(--sub); font-size: .76rem; font-weight: 700; cursor: pointer; font-variant-numeric: tabular-nums; }
+.nc-chip.on { background: var(--grad); color: #fff; border-color: transparent; }
+.nc-customwrap { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px 3px 12px; background: var(--input-bg); }
+.nc-customwrap > span { font-size: .66rem; color: var(--muted); font-weight: 700; }
+.nc-num { width: 46px; border: 0; background: transparent; padding: 5px 0; font-size: .82rem; font-weight: 800; color: var(--ink); text-align: center; font-variant-numeric: tabular-nums; }
+.nc-num.on { color: var(--accent); }
+.nc-num:focus { border: 0; outline: none; }
+
+/* Inline time / select controls */
+.nc-time, .nc-sel { border: 1px solid var(--line); border-radius: 11px; padding: 8px 11px; background: var(--input-bg); color: var(--ink); font-size: .84rem; font-weight: 700; font-variant-numeric: tabular-nums; flex: none; max-width: 55%; }
+.nc-time:focus, .nc-sel:focus { border-color: var(--accent); }
+
+/* Meal window read-out inside the meal card */
+.nc-meal { display: flex; align-items: center; gap: 11px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 13px; background: var(--input-bg); }
+.nc-meal .nc-ic { width: 32px; height: 32px; font-size: .95rem; }
+.nc-mealtime { font-size: .82rem !important; font-weight: 800 !important; color: var(--ink) !important; font-variant-numeric: tabular-nums; }
+
+/* Water stats strip */
+.nc-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.nc-stat { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 11px 6px; border-radius: 13px; background: var(--water-soft); }
+.nc-statv { font-family: 'Sora', sans-serif; font-weight: 800; font-size: 1rem; color: var(--ink); font-variant-numeric: tabular-nums; }
+.nc-statl { font-size: .6rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+
+/* Recent notifications history */
+.nc-history { display: flex; flex-direction: column; gap: 8px; }
+.nc-histrow { display: flex; align-items: flex-start; gap: 11px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); text-align: left; width: 100%; font: inherit; color: var(--ink); cursor: pointer; position: relative; }
+.nc-histrow .nc-ic { width: 30px; height: 30px; font-size: .85rem; margin-top: 1px; }
+.nc-unread { background: var(--chip-bg); border-color: transparent; }
+.nc-histtx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.nc-histtx strong { font-size: .82rem; font-weight: 700; }
+.nc-histbody { font-size: .72rem; color: var(--sub); line-height: 1.35; }
+.nc-histtime { font-size: .62rem; color: var(--muted); font-weight: 700; }
+.nc-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; margin-top: 6px; }
+
+/* Admin diagnostics */
+.nc-diagrows { display: flex; flex-direction: column; gap: 0; }
+.nc-diagrow { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.nc-diagrow:last-child { border-bottom: 0; }
+.nc-diagk { font-size: .72rem; color: var(--muted); font-weight: 700; flex: none; }
+.nc-diagv { font-size: .72rem; color: var(--ink); font-weight: 700; text-align: right; word-break: break-word; }

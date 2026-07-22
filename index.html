@@ -638,14 +638,15 @@
           </div>
 
           <div class="card">
-            <h2>Alerts</h2>
-            <p class="muted small">Get a notification if you're eating too fast, too little, falling behind on protein or water — or when a meal window passes with nothing logged.</p>
-            <div class="section-head">
-              <span>Pace alerts</span>
-              <button id="alertsToggle" class="theme-switch" type="button"><span class="theme-knob"></span></button>
-            </div>
-            <p id="alertsMessage" class="form-message"></p>
+            <h2>Notifications</h2>
+            <p class="muted small">Meal reminders, water nudges, nutrient and goal alerts, and daily summaries now live in their own place.</p>
+            <button id="openNotifCenter" type="button" class="btn-primary">🔔 Open Notification Center</button>
           </div>
+        </section>
+
+        <section id="tabNotifications" class="tab-panel" data-tab="notifications" hidden>
+          <button id="backMoreNotifications" type="button" class="chip-button back-more">‹ More</button>
+          <div id="notifCenter" class="notif-center"></div>
         </section>
 
       </div>
