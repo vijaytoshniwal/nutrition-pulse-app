@@ -1,5 +1,6 @@
 import { NUTRIENTS, DEFAULT_TARGETS, DEFAULT_PROFILE, DEFAULT_ACTIVITY_TARGETS } from './constants.js';
 import { dayKey, num } from './utils.js';
+import { normalizeMealWindows, daySummary } from './meal-timing.js';
 
 export const STORAGE_KEY = 'nutrition-pulse-data-v1';
 export const BACKUP_KEY = 'nutrition-pulse-backup-v1';
@@ -30,6 +31,7 @@ export function freshState() {
     avatar: '',
     displayName: '',
     mealPresets: [],
+    mealWindows: normalizeMealWindows(null),
     weekPlan: null,
     myPlan: emptyMyPlan(),
     activePlan: 'auto',
@@ -58,6 +60,7 @@ export function normalizeState(data) {
   state.weights = Array.isArray(state.weights) ? state.weights : [];
   state.customFoods = state.customFoods || {};
   state.mealPresets = Array.isArray(state.mealPresets) ? state.mealPresets : [];
+  state.mealWindows = normalizeMealWindows(data && data.mealWindows);
   state.weekPlan = state.weekPlan && Array.isArray(state.weekPlan.days) ? state.weekPlan : null;
   // Self-composed plan: rebuild the 7×4 shape so every day/slot is always a valid array.
   const savedMyPlan = data && data.myPlan;
@@ -113,7 +116,10 @@ export function archiveCurrentDay(state) {
   const hasData = state.foods.length > 0 || state.water > 0 || num(act.steps) > 0 || num(act.burnKcal) > 0 || num(act.exMin) > 0;
   if (!hasData) return false;
   const id = state.currentDate;
-  const entry = { id, ...totals, water: state.water, steps: num(act.steps), burnKcal: num(act.burnKcal), exMin: num(act.exMin) };
+  // Meal-timing summary is frozen into the history entry so Daily History can
+  // show on-time / late / missed even after the windows are later re-configured.
+  const meals = state.foods.length ? daySummary(state.foods, state.mealWindows) : null;
+  const entry = { id, ...totals, water: state.water, steps: num(act.steps), burnKcal: num(act.burnKcal), exMin: num(act.exMin), meals };
   state.history = [entry, ...state.history.filter(h => h.id !== id)];
   return true;
 }
